@@ -17,14 +17,16 @@ interface Props {
 }
 
 const ROLES: { value: UserRole; label: string }[] = [
-  { value: 'ADMINISTRATOR', label: 'Administrador' },
-  { value: 'ENCARGADO',     label: 'Encargado de Sede' },
-  { value: 'WORKER',        label: 'Trabajador' },
-  { value: 'CASHIER',       label: 'Cajero' },
-  { value: 'CUSTOMER',      label: 'Cliente' },
+  { value: 'ADMINISTRATOR',  label: 'Administrador' },
+  { value: 'ENCARGADO',      label: 'Encargado de Sede' },
+  { value: 'JEFE_MECANICO',  label: 'Jefe de Mecánicos' },
+  { value: 'MECANICO',       label: 'Mecánico' },
+  { value: 'WORKER',         label: 'Trabajador' },
+  { value: 'CASHIER',        label: 'Cajero' },
+  { value: 'CUSTOMER',       label: 'Cliente' },
 ];
 
-const SEDE_REQUIRED: UserRole[] = ['ENCARGADO', 'WORKER', 'CASHIER'];
+const SEDE_REQUIRED: UserRole[] = ['ENCARGADO', 'JEFE_MECANICO', 'MECANICO', 'WORKER', 'CASHIER'];
 
 // ── Validation helpers ────────────────────────────────────────────────────────
 
@@ -150,7 +152,7 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
     }
 
     if (SEDE_REQUIRED.includes(form.role) && !form.sede) {
-      errs.sede = 'Encargados, trabajadores y cajeros deben tener una sede';
+      errs.sede = 'Este rol requiere una sede asignada';
     }
 
     setErrors(errs);
@@ -281,7 +283,7 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
               {errors.role && <span className="field-error">{errors.role}</span>}
             </div>
             <div className="form-group">
-              <label>Sede {SEDE_REQUIRED.includes(form.role) ? '*' : '(opcional)'}</label>
+              <label>Sede {SEDE_REQUIRED.includes(form.role) ? <span style={{ color: '#e53e3e' }}>*</span> : <span style={{ color: '#a0aec0', fontSize: 12 }}>(opcional)</span>}</label>
               <select
                 value={form.sede}
                 onChange={(e) => change('sede', e.target.value)}

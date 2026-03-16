@@ -10,10 +10,12 @@ const LoginPage         = lazy(() => import('./pages/LoginPage'));
 const RegistroPage      = lazy(() => import('./pages/RegistroPage'));
 const HomePage          = lazy(() => import('./pages/HomePage'));
 const MiQRPage          = lazy(() => import('./pages/MiQRPage'));
-const MisComprasPage    = lazy(() => import('./pages/MisComprasPage'));
-const DetalleCompraPage = lazy(() => import('./pages/DetalleCompraPage'));
-const CuponesPage       = lazy(() => import('./pages/CuponesPage'));
-const PerfilPage        = lazy(() => import('./pages/PerfilPage'));
+const MisComprasPage      = lazy(() => import('./pages/MisComprasPage'));
+const DetalleCompraPage   = lazy(() => import('./pages/DetalleCompraPage'));
+const CuponesPage         = lazy(() => import('./pages/CuponesPage'));
+const PerfilPage          = lazy(() => import('./pages/PerfilPage'));
+const MisServiciosPage    = lazy(() => import('./pages/MisServiciosPage'));
+const DetalleServicioPage = lazy(() => import('./pages/DetalleServicioPage'));
 
 // Layout for authenticated screens (with bottom nav)
 const MainLayout: React.FC = () => {
@@ -65,6 +67,8 @@ const AppRoutes: React.FC = () => (
         <Route path="/compras/:id"       element={<DetalleCompraPage />} />
         <Route path="/cupones"           element={<CuponesPage />} />
         <Route path="/perfil"            element={<PerfilPage />} />
+        <Route path="/taller"            element={<MisServiciosPage />} />
+        <Route path="/taller/:id"        element={<DetalleServicioPage />} />
       </Route>
 
       {/* Fallback */}

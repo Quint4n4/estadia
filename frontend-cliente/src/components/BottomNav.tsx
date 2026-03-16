@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Receipt, QrCode, Tag, User } from 'lucide-react';
+import { Home, Receipt, QrCode, Wrench, User } from 'lucide-react';
 import './BottomNav.css';
 
 const BottomNav: React.FC = () => (
@@ -20,9 +20,9 @@ const BottomNav: React.FC = () => (
       <QrCode size={26} color="#fff" />
     </NavLink>
 
-    <NavLink to="/cupones" className={({ isActive }) => `bnav-item${isActive ? ' bnav-item--active' : ''}`}>
-      <Tag size={22} />
-      <span>Cupones</span>
+    <NavLink to="/taller" className={({ isActive }) => `bnav-item${isActive ? ' bnav-item--active' : ''}`}>
+      <Wrench size={22} />
+      <span>Taller</span>
     </NavLink>
 
     <NavLink to="/perfil" className={({ isActive }) => `bnav-item${isActive ? ' bnav-item--active' : ''}`}>

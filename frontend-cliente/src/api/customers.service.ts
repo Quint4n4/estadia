@@ -1,5 +1,5 @@
 import apiClient from './axios.config';
-import type { ClienteProfile, AuthTokens, MisComprasResponse } from '../types/customer.types';
+import type { ClienteProfile, AuthTokens, MisComprasResponse, ServicioMotoCliente } from '../types/customer.types';
 
 interface RegisterPayload {
   first_name: string;
@@ -48,6 +48,18 @@ export const customersService = {
     const r = await apiClient.get('/customers/mis-compras/', {
       params: { page, page_size: pageSize },
     });
+    return r.data.data;
+  },
+
+  // ── Taller ──────────────────────────────────────────────────────────────────
+
+  async getMisServicios(): Promise<ServicioMotoCliente[]> {
+    const r = await apiClient.get('/taller/mis-servicios/');
+    return r.data.data;
+  },
+
+  async getMiServicio(id: number): Promise<ServicioMotoCliente> {
+    const r = await apiClient.get(`/taller/mis-servicios/${id}/`);
     return r.data.data;
   },
 };

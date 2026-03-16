@@ -9,7 +9,8 @@
       "WebFetch(domain:morsa.com.mx)",
       "Bash(xargs ls -la)",
       "WebFetch(domain:www.sat.gob.mx)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(where pg_dump)"
     ],
     "deny": [],
     "ask": []

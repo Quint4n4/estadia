@@ -12,7 +12,7 @@ export interface User {
   last_name: string;
   full_name: string;
   phone: string;
-  role: 'ADMINISTRATOR' | 'ENCARGADO' | 'WORKER' | 'CASHIER' | 'CUSTOMER';
+  role: 'ADMINISTRATOR' | 'ENCARGADO' | 'JEFE_MECANICO' | 'MECANICO' | 'WORKER' | 'CASHIER' | 'CUSTOMER';
   sede: Sede | null;
   is_active: boolean;
   created_at: string;

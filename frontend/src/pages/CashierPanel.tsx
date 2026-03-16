@@ -5,9 +5,10 @@ import { salesService } from '../api/sales.service';
 import POSView from '../components/cashier/POSView';
 import SalesHistoryView from '../components/cashier/SalesHistoryView';
 import CajaClosedScreen from '../components/cashier/CajaClosedScreen';
+import ServiciosView from '../components/taller/ServiciosView';
 import '../styles/DashboardPage.css';
 
-type Section    = 'pos' | 'history';
+type Section    = 'pos' | 'history' | 'servicios';
 type CajaStatus = 'loading' | 'cerrada' | 'abierta';
 
 const CashierPanel: React.FC = () => {
@@ -103,6 +104,18 @@ const CashierPanel: React.FC = () => {
           Ventas del día
         </button>
 
+        <button
+          className={`cashier-nav-item${section === 'servicios' ? ' cashier-nav-item--active' : ''}`}
+          onClick={() => setSection('servicios')}
+          disabled={cajaStatus !== 'abierta'}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+          </svg>
+          Taller / Servicios
+        </button>
+
         {/* User info + actions */}
         <div className="cashier-sidebar-footer">
           <div className="cashier-user-info">
@@ -147,7 +160,9 @@ const CashierPanel: React.FC = () => {
         <div className="cashier-main-header">
           {cajaStatus !== 'abierta'
             ? 'Caja'
-            : section === 'pos' ? 'Punto de Venta' : 'Ventas del día'
+            : section === 'pos'       ? 'Punto de Venta'
+            : section === 'history'   ? 'Ventas del día'
+            : 'Taller / Servicios'
           }
         </div>
 
@@ -162,8 +177,9 @@ const CashierPanel: React.FC = () => {
 
           {cajaStatus === 'abierta' && sedeId > 0 && (
             <>
-              {section === 'pos'     && <POSView sedeId={sedeId} />}
-              {section === 'history' && <SalesHistoryView sedeId={sedeId} cajeroId={cajeroId} />}
+              {section === 'pos'       && <POSView sedeId={sedeId} />}
+              {section === 'history'   && <SalesHistoryView sedeId={sedeId} cajeroId={cajeroId} />}
+              {section === 'servicios' && <ServiciosView sedeId={sedeId} />}
             </>
           )}
 

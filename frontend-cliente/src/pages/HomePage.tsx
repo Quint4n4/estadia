@@ -1,10 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { QrCode, Receipt, ChevronRight, Star } from 'lucide-react';
+import { QrCode, Receipt, ChevronRight, Star, Wrench } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { customersService } from '../api/customers.service';
-import type { Venta } from '../types/customer.types';
+import type { Venta, ServicioMotoCliente } from '../types/customer.types';
 import './HomePage.css';
+
+const STATUS_LABEL: Record<string, string> = {
+  RECIBIDO:         'Recibido en taller',
+  EN_PROCESO:       'En reparación',
+  COTIZACION_EXTRA: 'Pendiente tu aprobación',
+  LISTO:            '¡Lista para recoger!',
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  RECIBIDO:         'var(--c-text-dis)',
+  EN_PROCESO:       '#3182ce',
+  COTIZACION_EXTRA: '#d69e2e',
+  LISTO:            'var(--c-success)',
+};
 
 const fmt = (n: string | number) =>
   Number(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
@@ -16,15 +30,23 @@ const HomePage: React.FC = () => {
   const { profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
 
-  const [lastVenta, setLastVenta] = useState<Venta | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [lastVenta,    setLastVenta]    = useState<Venta | null>(null);
+  const [lastServicio, setLastServicio] = useState<ServicioMotoCliente | null>(null);
+  const [loading,      setLoading]      = useState(true);
 
   useEffect(() => {
     refreshProfile().catch(() => {});
-    customersService.getMisCompras(1, 1)
-      .then(r => setLastVenta(r.ventas[0] ?? null))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    Promise.allSettled([
+      customersService.getMisCompras(1, 1),
+      customersService.getMisServicios(),
+    ]).then(([comprasRes, serviciosRes]) => {
+      if (comprasRes.status === 'fulfilled')  setLastVenta(comprasRes.value.ventas[0] ?? null);
+      if (serviciosRes.status === 'fulfilled') {
+        // Mostrar el primer servicio activo (no entregado)
+        const activo = serviciosRes.value.find(s => s.status !== 'ENTREGADO') ?? null;
+        setLastServicio(activo);
+      }
+    }).finally(() => setLoading(false));
   }, []); // eslint-disable-line
 
   const greeting = () => {
@@ -71,6 +93,50 @@ const HomePage: React.FC = () => {
           </div>
           <ChevronRight size={20} color="var(--c-text-sec)" />
         </button>
+
+        {/* Servicio activo en taller */}
+        {(loading || lastServicio) && (
+          <div>
+            <div className="section-title" style={{ paddingLeft: 0, marginBottom: 10 }}>
+              Servicio en taller
+            </div>
+            {loading ? (
+              <div className="skeleton" style={{ height: 88, borderRadius: 'var(--r-md)' }} />
+            ) : lastServicio && (
+              <div
+                className="card"
+                onClick={() => navigate(`/taller/${lastServicio.id}`, { state: { srv: lastServicio } })}
+                style={{
+                  borderLeft: `4px solid ${STATUS_COLOR[lastServicio.status] ?? 'var(--c-text-dis)'}`,
+                  cursor: 'pointer', padding: '14px 16px',
+                  display: 'flex', alignItems: 'center', gap: 12,
+                }}
+              >
+                <div style={{
+                  width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
+                  background: (STATUS_COLOR[lastServicio.status] ?? '#718096') + '18',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Wrench size={20} color={STATUS_COLOR[lastServicio.status] ?? '#718096'} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontWeight: 700, fontSize: 14, color: 'var(--c-text)', marginBottom: 2 }}>
+                    {lastServicio.moto_display}
+                  </p>
+                  <p style={{ fontSize: 12, color: STATUS_COLOR[lastServicio.status] ?? 'var(--c-text-sec)', fontWeight: 600 }}>
+                    {STATUS_LABEL[lastServicio.status] ?? lastServicio.status_display}
+                  </p>
+                  {lastServicio.tiene_extra_pendiente && (
+                    <p style={{ fontSize: 11, color: '#d69e2e', marginTop: 2 }}>
+                      ⚠ Requiere tu aprobación en caja
+                    </p>
+                  )}
+                </div>
+                <ChevronRight size={18} color="var(--c-text-dis)" />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Last purchase */}
         <div>

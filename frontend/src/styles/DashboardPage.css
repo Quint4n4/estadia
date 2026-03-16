@@ -673,10 +673,13 @@
   letter-spacing: 0.03em;
 }
 
-.role-badge.role-administrator { background: var(--color-error-bg); color: var(--color-error); }
-.role-badge.role-worker        { background: var(--color-success-bg); color: var(--color-success); }
-.role-badge.role-cashier       { background: var(--color-warning-bg); color: var(--color-warning); }
-.role-badge.role-customer     { background: var(--color-primary-bg); color: var(--color-primary); }
+.role-badge.role-administrator  { background: var(--color-error-bg); color: var(--color-error); }
+.role-badge.role-encargado      { background: #faf5ff; color: #805ad5; }
+.role-badge.role-jefe_mecanico  { background: #ebf8ff; color: #2b6cb0; }
+.role-badge.role-mecanico       { background: #e6fffa; color: #276749; }
+.role-badge.role-worker         { background: var(--color-success-bg); color: var(--color-success); }
+.role-badge.role-cashier        { background: var(--color-warning-bg); color: var(--color-warning); }
+.role-badge.role-customer       { background: var(--color-primary-bg); color: var(--color-primary); }
 
 .status-badge {
   display: inline-block;

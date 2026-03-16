@@ -50,3 +50,46 @@ export interface MisComprasResponse {
   page_size:   number;
   total_pages: number;
 }
+
+// ── Módulo Taller ─────────────────────────────────────────────────────────────
+
+export type ServicioStatus =
+  | 'RECIBIDO'
+  | 'EN_PROCESO'
+  | 'COTIZACION_EXTRA'
+  | 'LISTO'
+  | 'ENTREGADO';
+
+export type PagoStatus = 'PENDIENTE_PAGO' | 'PAGADO';
+
+export interface MotoClienteMinimal {
+  id:     number;
+  marca:  string;
+  modelo: string;
+  anio:   number;
+  placa:  string;
+}
+
+export interface ServicioMotoCliente {
+  id:                     number;
+  folio:                  string;
+  sede_nombre:            string;
+  moto_display:           string;
+  moto:                   MotoClienteMinimal;
+  descripcion_problema:   string;
+  status:                 ServicioStatus;
+  status_display:         string;
+  pago_status:            PagoStatus;
+  pago_status_display:    string;
+  mecanico_nombre:        string | null;
+  mano_de_obra:           string;
+  total_refacciones:      string;
+  total:                  string;
+  fecha_recepcion:        string;
+  fecha_entrega_estimada: string | null;
+  fecha_inicio:           string | null;
+  fecha_listo:            string | null;
+  fecha_entrega:          string | null;
+  tiene_extra_pendiente:  boolean;
+  tiempo_recibido:        number;
+}

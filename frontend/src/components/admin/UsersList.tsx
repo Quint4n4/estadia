@@ -8,11 +8,13 @@ import UserFormModal from './UserFormModal';
 import ConfirmDialog from '../common/ConfirmDialog';
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  ADMINISTRATOR: 'Administrador',
-  ENCARGADO:     'Encargado',
-  WORKER:        'Trabajador',
-  CASHIER:       'Cajero',
-  CUSTOMER:      'Cliente',
+  ADMINISTRATOR:  'Administrador',
+  ENCARGADO:      'Encargado',
+  JEFE_MECANICO:  'Jefe Mecánicos',
+  MECANICO:       'Mecánico',
+  WORKER:         'Trabajador',
+  CASHIER:        'Cajero',
+  CUSTOMER:       'Cliente',
 };
 
 const UsersList: React.FC = () => {
@@ -149,6 +151,8 @@ const UsersList: React.FC = () => {
           <option value="">Todos los roles</option>
           <option value="ADMINISTRATOR">Administrador</option>
           <option value="ENCARGADO">Encargado</option>
+          <option value="JEFE_MECANICO">Jefe Mecánicos</option>
+          <option value="MECANICO">Mecánico</option>
           <option value="WORKER">Trabajador</option>
           <option value="CASHIER">Cajero</option>
           <option value="CUSTOMER">Cliente</option>

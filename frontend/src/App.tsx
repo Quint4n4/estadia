@@ -11,6 +11,8 @@ import DashboardPage from './pages/DashboardPage';
 import EncargadoPanel from './pages/EncargadoPanel';
 import WorkerPanel from './pages/WorkerPanel';
 import CashierPanel from './pages/CashierPanel';
+import JefeMecanicoPanel from './pages/JefeMecanicoPanel';
+import MecanicoPanel from './pages/MecanicoPanel';
 
 // Redirige al panel correspondiente según el rol del usuario
 const RootRedirect: React.FC = () => {
@@ -62,6 +64,24 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['CASHIER']}>
                 <CashierPanel />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/jefe-mecanico"
+            element={
+              <ProtectedRoute allowedRoles={['JEFE_MECANICO']}>
+                <JefeMecanicoPanel />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/mecanico"
+            element={
+              <ProtectedRoute allowedRoles={['MECANICO']}>
+                <MecanicoPanel />
               </ProtectedRoute>
             }
           />
