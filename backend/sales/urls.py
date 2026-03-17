@@ -6,7 +6,7 @@ from .views import (
     VentaListCreateView, VentaDetailView, VentaCancelarView,
     GenerarCodigoView, AbrirCajaView, MiEstadoCajaView,
     CerrarCajaView, CajasActivasView, AdminResumenView, ReportesView,
-    ReportesCajaListView, ReporteCajaDownloadView,
+    ReportesCajaListView, ReporteCajaDownloadView, VentasTendenciaView,
 )
 
 app_name = 'sales'
@@ -29,6 +29,7 @@ urlpatterns = [
 
     # Reportes analíticos (charts/KPIs)
     path('reportes/',                           ReportesView.as_view(),             name='reportes'),
+    path('tendencia/',                          VentasTendenciaView.as_view(),      name='ventas_tendencia'),
 
     # Reportes de cierre de caja (PDF)
     path('reportes-caja/',                      ReportesCajaListView.as_view(),     name='reportes_caja_list'),

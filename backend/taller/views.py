@@ -98,7 +98,7 @@ class MotoClienteListView(APIView):
         Cliente ve solo las suyas.
         """
         user = request.user
-        if user.role == 'CUSTOMER':
+        if user.is_customer:
             try:
                 profile = ClienteProfile.objects.get(usuario=user)
                 qs = MotoCliente.objects.filter(cliente=profile)
@@ -110,9 +110,13 @@ class MotoClienteListView(APIView):
                 qs = MotoCliente.objects.filter(cliente_id=cliente_id)
             else:
                 qs = MotoCliente.objects.all()
-            if user.role not in ('ADMINISTRATOR',) and user.sede:
-                # Filtrar por clientes de la sede (a través de sus servicios)
-                pass  # Sin restricción extra por ahora
+            if not user.is_administrator and user.sede:
+                # Restringir a motos cuyos clientes pertenecen a la misma sede,
+                # más motos walk-in (cliente=null) que no tienen sede propia.
+                qs = qs.filter(
+                    Q(cliente__usuario__sede=user.sede) |
+                    Q(cliente__isnull=True)
+                )
 
         serializer = MotoClienteSerializer(qs, many=True)
         return Response({'success': True, 'data': serializer.data})
@@ -168,7 +172,7 @@ class ServicioListView(APIView):
         )
 
         # Filtro por sede
-        if user.role == 'ADMINISTRATOR':
+        if user.is_administrator:
             sede_id = request.query_params.get('sede_id')
             if sede_id:
                 qs = qs.filter(sede_id=sede_id)
@@ -176,7 +180,7 @@ class ServicioListView(APIView):
             qs = qs.filter(sede=user.sede)
 
         # Mecánico solo ve sus servicios asignados
-        if user.role == 'MECANICO':
+        if user.is_mecanico:
             qs = qs.filter(mecanico=user)
 
         # Filtros opcionales
@@ -205,7 +209,7 @@ class ServicioListView(APIView):
         })
 
     def post(self, request):
-        if request.user.role not in ('CASHIER', 'ENCARGADO', 'ADMINISTRATOR'):
+        if not (request.user.is_cashier or request.user.is_encargado or request.user.is_administrator):
             return Response(
                 {'success': False, 'message': 'Solo cajeros y encargados pueden crear servicios.'},
                 status=status.HTTP_403_FORBIDDEN
@@ -247,7 +251,7 @@ class ServicioDetailView(APIView):
 
     def put(self, request, pk):
         """Editar cotización (solo si status=RECIBIDO, solo cajero/encargado/admin)."""
-        if request.user.role not in ('CASHIER', 'ENCARGADO', 'ADMINISTRATOR'):
+        if not (request.user.is_cashier or request.user.is_encargado or request.user.is_administrator):
             return Response({'success': False, 'message': 'Sin permisos.'}, status=status.HTTP_403_FORBIDDEN)
         servicio = self._get_servicio(pk)
         if not servicio:
@@ -317,7 +321,7 @@ class MarcarListoView(APIView):
             return Response({'success': False, 'message': 'Servicio no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
 
         # El mecánico solo puede marcar sus propios servicios
-        if request.user.role == 'MECANICO' and servicio.mecanico != request.user:
+        if request.user.is_mecanico and servicio.mecanico != request.user:
             return Response({'success': False, 'message': 'No eres el mecánico asignado.'}, status=status.HTTP_403_FORBIDDEN)
 
         if servicio.status not in (ServicioMoto.Status.EN_PROCESO,):
@@ -443,9 +447,9 @@ class SolicitudRefaccionExtraListView(APIView):
             'servicio', 'mecanico', 'producto', 'respondido_por'
         )
 
-        if user.role == 'MECANICO':
+        if user.is_mecanico:
             qs = qs.filter(mecanico=user)
-        elif user.role not in ('ADMINISTRATOR',) and user.sede:
+        elif not user.is_administrator and user.sede:
             qs = qs.filter(servicio__sede=user.sede)
 
         # Filtro por status
@@ -463,7 +467,7 @@ class SolicitudRefaccionExtraListView(APIView):
 
     def post(self, request):
         """Mecánico solicita refacción extra → servicio pasa a COTIZACION_EXTRA."""
-        if request.user.role not in ('MECANICO', 'JEFE_MECANICO'):
+        if not (request.user.is_mecanico or request.user.is_jefe_mecanico):
             return Response(
                 {'success': False, 'message': 'Solo mecánicos pueden solicitar refacciones extra.'},
                 status=status.HTTP_403_FORBIDDEN
@@ -604,7 +608,7 @@ class MisServiciosView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if request.user.role != 'CUSTOMER':
+        if not request.user.is_customer:
             return Response({'success': False, 'message': 'Solo clientes pueden acceder.'}, status=status.HTTP_403_FORBIDDEN)
 
         try:
@@ -629,7 +633,7 @@ class MiServicioDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
-        if request.user.role != 'CUSTOMER':
+        if not request.user.is_customer:
             return Response({'success': False, 'message': 'Solo clientes pueden acceder.'}, status=status.HTTP_403_FORBIDDEN)
 
         try:

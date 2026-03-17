@@ -4,6 +4,7 @@ Django settings for MotoQFox POS System.
 
 from pathlib import Path
 from datetime import timedelta
+import os
 import environ
 
 # Build paths inside the project
@@ -197,14 +198,10 @@ SIMPLE_JWT = {
 
 
 # CORS Configuration (para desarrollo con frontend en diferente puerto)
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Vite default port (admin)
-    "http://localhost:5174",  # frontend-cliente PWA
-    "http://localhost:3000",  # Alternative React port
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-    "http://127.0.0.1:3000",
-]
+CORS_ALLOWED_ORIGINS = os.environ.get(
+    'CORS_ALLOWED_ORIGINS',
+    'http://localhost:5173,http://localhost:5174'
+).split(',')
 
 CORS_ALLOW_CREDENTIALS = True
 

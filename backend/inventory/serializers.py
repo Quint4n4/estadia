@@ -32,6 +32,9 @@ class CategoriaSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'created_at')
 
     def get_product_count(self, obj):
+        # PERF-006: read annotated value when available (0 extra queries per row)
+        if hasattr(obj, 'product_count'):
+            return obj.product_count
         return obj.productos.filter(is_active=True).count()
 
     def validate_name(self, value):
@@ -53,6 +56,9 @@ class SubcategoriaSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'created_at')
 
     def get_product_count(self, obj):
+        # PERF-006: read annotated value when available (0 extra queries per row)
+        if hasattr(obj, 'product_count'):
+            return obj.product_count
         return obj.productos.filter(is_active=True).count()
 
     def validate(self, attrs):
@@ -94,6 +100,9 @@ class MarcaMotoSerializer(serializers.ModelSerializer):
         read_only_fields = ('id',)
 
     def get_modelos_count(self, obj):
+        # PERF-006: read annotated value when available (0 extra queries per row)
+        if hasattr(obj, 'modelos_count'):
+            return obj.modelos_count
         return obj.modelos.filter(is_active=True).count()
 
 
@@ -184,7 +193,20 @@ class ProductoSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'created_at', 'updated_at')
 
     def get_total_stock(self, obj):
-        return sum(s.quantity for s in obj.stock_items.all())
+        # PERF-002: Check whether the queryset was annotated with total_stock.
+        # Views that list products MUST add:
+        #   .annotate(total_stock=Sum('stock_items__quantity'))
+        # to their queryset so this branch is taken (0 extra queries per product).
+        # The annotation lives in obj.__dict__; checking there avoids triggering
+        # a descriptor or raising AttributeError on unannotated instances.
+        if 'total_stock' in obj.__dict__:
+            # Annotation present — NULL means no stock rows exist, treat as 0
+            return obj.__dict__['total_stock'] or 0
+        # Fallback for single-object retrieval or unannotated querysets.
+        # Uses aggregate (1 query) instead of iterating stock_items (N rows in Python).
+        from django.db.models import Sum
+        result = obj.stock_items.aggregate(total=Sum('quantity'))
+        return result['total'] or 0
 
 
 class ProductoCreateSerializer(serializers.ModelSerializer):
@@ -318,6 +340,9 @@ class AuditoriaInventarioSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'status', 'created_by', 'created_at', 'updated_at')
 
     def get_items_count(self, obj):
+        # PERF-006: read annotated value when available (0 extra queries per row)
+        if hasattr(obj, 'items_count'):
+            return obj.items_count
         return obj.items.count()
 
 

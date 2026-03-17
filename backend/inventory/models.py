@@ -312,6 +312,10 @@ class Stock(models.Model):
         unique_together = ('producto', 'sede')
         verbose_name = 'Stock'
         verbose_name_plural = 'Stock'
+        indexes = [
+            models.Index(fields=['sede',    'quantity'], name='stock_sede_qty_idx'),
+            models.Index(fields=['producto', 'sede'],    name='stock_producto_sede_idx'),
+        ]
 
     def __str__(self):
         return f'{self.producto.sku} @ {self.sede.name}: {self.quantity}'

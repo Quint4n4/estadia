@@ -44,24 +44,43 @@ def _log_event(event_type: str, email: str, user=None, request=None, details: st
 
 # ─── Email helpers ─────────────────────────────────────────────────────────────
 
-def _send_welcome_email(user, plain_password: str) -> None:
-    """Send welcome email with login credentials to the new user via Gmail."""
+def _send_welcome_email(user, plain_password: str = None) -> None:
+    """
+    Send welcome email to new user.
+
+    SECURITY FIX (VULN-006): the plain password is no longer embedded in the
+    email.  Instead a single-use PasswordResetToken (1-hour expiry) is created
+    and the user receives a secure link to set their own password on first login.
+    The `plain_password` parameter is retained for call-site compatibility but
+    is intentionally ignored.
+    """
     from django.conf import settings
 
-    sede_name = user.sede.name if user.sede else 'Sin sede asignada'
+    sede_name    = user.sede.name if user.sede else 'Sin sede asignada'
     role_display = user.get_role_display()
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
 
-    subject = 'Bienvenido a MotoQFox - Tus credenciales de acceso'
+    # Invalidate any previous unused tokens for this user, then create a fresh one
+    PasswordResetToken.objects.filter(user=user, used=False).update(used=True)
+    token_obj  = PasswordResetToken.objects.create(
+        user=user,
+        expires_at=timezone.now() + timedelta(hours=1),
+    )
+    set_password_url = f'{frontend_url}/reset-password?token={token_obj.token}'
+
+    subject = 'Bienvenido a MotoQFox - Activa tu cuenta'
 
     text_body = (
         f'Hola {user.get_full_name()},\n\n'
         f'Tu cuenta en el sistema MotoQFox ha sido creada exitosamente.\n\n'
-        f'Tus credenciales de acceso son:\n'
-        f'  Correo:     {user.email}\n'
-        f'  Contrasena: {plain_password}\n'
-        f'  Rol:        {role_display}\n'
-        f'  Sede:       {sede_name}\n\n'
-        f'Por seguridad, te recomendamos cambiar tu contrasena la proxima vez que ingreses.\n\n'
+        f'Tus datos de acceso son:\n'
+        f'  Correo: {user.email}\n'
+        f'  Rol:    {role_display}\n'
+        f'  Sede:   {sede_name}\n\n'
+        f'Para establecer tu contrasena e ingresar al sistema, haz clic en el siguiente enlace\n'
+        f'(valido por 1 hora):\n\n'
+        f'{set_password_url}\n\n'
+        f'Si no esperabas este correo, ignora este mensaje.\n\n'
         f'Saludos,\nEquipo MotoQFox'
     )
 
@@ -74,7 +93,7 @@ def _send_welcome_email(user, plain_password: str) -> None:
       </div>
 
       <h2 style="color:#2d3748;font-size:18px;">Bienvenido, {user.get_full_name()}</h2>
-      <p style="color:#4a5568;font-size:14px;">Tu cuenta ha sido creada exitosamente. Aqui estan tus credenciales:</p>
+      <p style="color:#4a5568;font-size:14px;">Tu cuenta ha sido creada exitosamente. Estos son tus datos:</p>
 
       <div style="background:#f7fafc;border-radius:8px;padding:16px 20px;margin:20px 0;
                   border-left:4px solid #4c51bf;">
@@ -82,10 +101,6 @@ def _send_welcome_email(user, plain_password: str) -> None:
           <tr>
             <td style="color:#718096;padding:4px 0;width:110px;">Correo:</td>
             <td style="color:#2d3748;font-weight:600;">{user.email}</td>
-          </tr>
-          <tr>
-            <td style="color:#718096;padding:4px 0;">Contrasena:</td>
-            <td style="color:#2d3748;font-weight:600;font-family:monospace;font-size:15px;">{plain_password}</td>
           </tr>
           <tr>
             <td style="color:#718096;padding:4px 0;">Rol:</td>
@@ -98,10 +113,29 @@ def _send_welcome_email(user, plain_password: str) -> None:
         </table>
       </div>
 
+      <p style="color:#4a5568;font-size:14px;">
+        Para establecer tu contrasena e ingresar al sistema, haz clic en el boton de abajo.
+        El enlace es valido durante <strong>1 hora</strong>.
+      </p>
+
+      <div style="text-align:center;margin:28px 0;">
+        <a href="{set_password_url}"
+           style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;
+                  padding:14px 32px;border-radius:8px;text-decoration:none;
+                  font-weight:600;font-size:15px;display:inline-block;">
+          Establecer mi contrasena
+        </a>
+      </div>
+
+      <p style="color:#718096;font-size:13px;">
+        O copia y pega este enlace en tu navegador:<br>
+        <span style="color:#4c51bf;word-break:break-all;">{set_password_url}</span>
+      </p>
+
       <p style="color:#e53e3e;font-size:13px;background:#fff5f5;padding:10px 14px;
                 border-radius:6px;border:1px solid #fed7d7;">
-        <strong>Importante:</strong> Guarda estas credenciales en un lugar seguro y
-        cambia tu contrasena al iniciar sesion por primera vez.
+        <strong>Importante:</strong> Este enlace expira en 1 hora y solo puede usarse una vez.
+        Si no esperabas este correo, ignora este mensaje; tu cuenta permanece inactiva.
       </p>
 
       <p style="color:#a0aec0;font-size:12px;text-align:center;margin-top:24px;">

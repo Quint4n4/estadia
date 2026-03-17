@@ -2,12 +2,14 @@
 Views for Sales — Venta + AperturaCaja
 """
 import random
+import threading
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import F, Sum, Count
-from django.db.models.functions import TruncDate
+from django.db.models import F, Sum, Count, Q, DecimalField
+from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
+from decimal import Decimal
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -22,6 +24,18 @@ from .permissions import IsCajeroOrAbove, IsEncargadoOrAbove, IsAdministrator
 def _not_found(entity='Recurso'):
     return Response({'success': False, 'message': f'{entity} no encontrado'},
                     status=status.HTTP_404_NOT_FOUND)
+
+
+# PERF-005: PDF is best-effort — generate in background so it never blocks cierre response
+def _generate_pdf_background(apertura_id: int) -> None:
+    """Genera el ReporteCaja PDF en background para no bloquear la respuesta al cajero."""
+    try:
+        from .models import AperturaCaja
+        from .pdf_service import build_reporte_from_apertura
+        apertura = AperturaCaja.objects.select_related('sede', 'cajero').get(pk=apertura_id)
+        build_reporte_from_apertura(apertura)
+    except Exception:
+        pass  # PDF es best-effort; un fallo aquí nunca debe afectar al cierre
 
 
 def _paginate(qs, request, default_size=20):
@@ -59,13 +73,24 @@ class VentaListCreateView(APIView):
     def get(self, request):
         qs = Venta.objects.select_related('sede', 'cajero').prefetch_related('items__producto')
 
+        # SECURITY: filter by sede based on role — only ADMINISTRATOR sees all sedes
+        user = request.user
+        if not user.is_administrator:
+            if user.sede is None:
+                return Response(
+                    {'success': False, 'message': 'Usuario sin sede asignada'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            qs = qs.filter(sede=user.sede)
+
         sede_id      = request.query_params.get('sede_id', '').strip()
         fecha_desde  = request.query_params.get('fecha_desde', '').strip()
         fecha_hasta  = request.query_params.get('fecha_hasta', '').strip()
         cajero_id    = request.query_params.get('cajero_id', '').strip()
         status_param = request.query_params.get('status', '').strip()
 
-        if sede_id:
+        # ADMINISTRATOR may further narrow by sede_id; non-admins already scoped above
+        if sede_id and user.is_administrator:
             qs = qs.filter(sede_id=sede_id)
         if fecha_desde:
             qs = qs.filter(created_at__date__gte=fecha_desde)
@@ -107,7 +132,17 @@ class VentaDetailView(APIView):
 
     def get(self, request, pk):
         venta = self._get(pk)
-        return Response({'success': True, 'data': VentaSerializer(venta).data}) if venta else _not_found('Venta')
+        if not venta:
+            return _not_found('Venta')
+        # SECURITY: non-admins can only access ventas from their own sede
+        user = request.user
+        if not user.is_administrator:
+            if user.sede is None or venta.sede_id != user.sede_id:
+                return Response(
+                    {'success': False, 'message': 'No tienes permisos para acceder a esta venta'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        return Response({'success': True, 'data': VentaSerializer(venta).data})
 
 
 class VentaCancelarView(APIView):
@@ -120,7 +155,7 @@ class VentaCancelarView(APIView):
     @transaction.atomic
     def patch(self, request, pk):
         try:
-            venta = Venta.objects.select_related('sede').prefetch_related('items__producto').get(pk=pk)
+            venta = Venta.objects.select_for_update().select_related('sede').prefetch_related('items__producto').get(pk=pk)
         except Venta.DoesNotExist:
             return _not_found('Venta')
 
@@ -133,10 +168,25 @@ class VentaCancelarView(APIView):
         venta.status = Venta.Status.CANCELADA
         venta.save(update_fields=['status'])
 
+        # Build producto_id → quantity map using prefetched items (0 extra queries)
+        qty_map: dict = {}
         for item in venta.items.all():
+            qty_map[item.producto_id] = qty_map.get(item.producto_id, 0) + item.quantity
+
+        # 1 query: lock all affected stock rows at once
+        stocks = list(
             Stock.objects.select_for_update().filter(
-                producto=item.producto, sede=venta.sede
-            ).update(quantity=F('quantity') + item.quantity)
+                producto_id__in=list(qty_map.keys()),
+                sede=venta.sede,
+            )
+        )
+
+        # Update quantities in Python using F() — no additional queries
+        for stock in stocks:
+            stock.quantity = F('quantity') + qty_map[stock.producto_id]
+
+        # 1 query: persist all updates
+        Stock.objects.bulk_update(stocks, ['quantity'])
 
         return Response({
             'success': True,
@@ -205,16 +255,21 @@ class AbrirCajaView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Find valid code for this sede
+        # Find code for this sede (any expiry status)
         codigo_obj = CodigoApertura.objects.filter(
             codigo=codigo_str,
             sede=request.user.sede,
-            expires_at__gt=timezone.now(),
         ).order_by('-created_at').first()
 
         if not codigo_obj:
             return Response(
-                {'success': False, 'message': 'Código incorrecto o expirado. Solicita uno nuevo al encargado.'},
+                {'success': False, 'message': 'Código inválido. Verifica los dígitos e intenta de nuevo.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if codigo_obj.expires_at < timezone.now():
+            return Response(
+                {'success': False, 'message': 'Código expirado. Solicita un nuevo código al encargado.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -275,12 +330,13 @@ class CerrarCajaView(APIView):
         apertura.fecha_cierre = timezone.now()
         apertura.save(update_fields=['status', 'fecha_cierre'])
 
-        # Generate PDF report asynchronously (best-effort — don't fail cierre if PDF fails)
-        try:
-            from .pdf_service import build_reporte_from_apertura
-            build_reporte_from_apertura(apertura)
-        except Exception:
-            pass  # PDF generation is non-critical
+        # PERF-005: Generate PDF in background thread so it never blocks the HTTP response
+        thread = threading.Thread(
+            target=_generate_pdf_background,
+            args=(apertura.id,),
+            daemon=True,
+        )
+        thread.start()
 
         return Response({
             'success': True,
@@ -321,56 +377,135 @@ class AdminResumenView(APIView):
 
     def get(self, request):
         from branches.models import Sede
-        from datetime import date
 
-        sedes       = Sede.objects.filter(is_active=True)
         today       = timezone.now().date()
         week_start  = today - timedelta(days=today.weekday())
         month_start = today.replace(day=1)
         year_start  = today.replace(month=1, day=1)
 
+        sedes = Sede.objects.filter(is_active=True)
+
+        # ── Query 1: ventas COMPLETADAS — todas las métricas de ingresos en una sola pasada
+        ventas_stats = (
+            Venta.objects
+            .filter(sede__in=sedes, status=Venta.Status.COMPLETADA)
+            .values('sede_id')
+            .annotate(
+                ingresos_hoy=Coalesce(
+                    Sum('total', filter=Q(created_at__date=today)),
+                    Decimal('0'), output_field=DecimalField(),
+                ),
+                ingresos_semana=Coalesce(
+                    Sum('total', filter=Q(created_at__date__gte=week_start)),
+                    Decimal('0'), output_field=DecimalField(),
+                ),
+                ingresos_mes=Coalesce(
+                    Sum('total', filter=Q(created_at__date__gte=month_start)),
+                    Decimal('0'), output_field=DecimalField(),
+                ),
+                ingresos_anio=Coalesce(
+                    Sum('total', filter=Q(created_at__date__gte=year_start)),
+                    Decimal('0'), output_field=DecimalField(),
+                ),
+                ventas_hoy=Count('id', filter=Q(created_at__date=today)),
+                ventas_mes=Count('id', filter=Q(created_at__date__gte=month_start)),
+            )
+        )
+
+        # ── Query 2: ventas CANCELADAS — devoluciones y montos en una sola pasada
+        cancelaciones_stats = (
+            Venta.objects
+            .filter(sede__in=sedes, status=Venta.Status.CANCELADA)
+            .values('sede_id')
+            .annotate(
+                dev_hoy=Count('id', filter=Q(created_at__date=today)),
+                dev_mes=Count('id', filter=Q(created_at__date__gte=month_start)),
+                monto_dev_mes=Coalesce(
+                    Sum('total', filter=Q(created_at__date__gte=month_start)),
+                    Decimal('0'), output_field=DecimalField(),
+                ),
+            )
+        )
+
+        # ── Query 3: cajas abiertas — una sola query para todas las sedes
+        cajas_qs = (
+            AperturaCaja.objects
+            .filter(sede__in=sedes, status=AperturaCaja.Status.ABIERTA)
+            .select_related('cajero')
+            .only('sede_id', 'fecha_apertura', 'cajero__first_name', 'cajero__last_name')
+        )
+
+        # Convertir a dicts para lookup O(1) en el loop de construcción
+        ventas_by_sede = {v['sede_id']: v for v in ventas_stats}
+        cancel_by_sede = {c['sede_id']: c for c in cancelaciones_stats}
+
+        # Agrupar cajas por sede_id en Python (sin queries adicionales)
+        cajas_by_sede: dict = {}
+        for caja in cajas_qs:
+            cajas_by_sede.setdefault(caja.sede_id, []).append({
+                'cajero_name': caja.cajero.get_full_name(),
+                'desde':       caja.fecha_apertura.strftime('%H:%M'),
+            })
+
+        # ── Construir la respuesta con lookups O(1) — sin queries adicionales
         result = []
         for sede in sedes:
-            completadas = Venta.objects.filter(sede=sede, status=Venta.Status.COMPLETADA)
-            canceladas  = Venta.objects.filter(sede=sede, status=Venta.Status.CANCELADA)
-
-            ingresos_hoy    = completadas.filter(created_at__date=today).aggregate(t=Sum('total'))['t'] or 0
-            ingresos_semana = completadas.filter(created_at__date__gte=week_start).aggregate(t=Sum('total'))['t'] or 0
-            ingresos_mes    = completadas.filter(created_at__date__gte=month_start).aggregate(t=Sum('total'))['t'] or 0
-            ingresos_anio   = completadas.filter(created_at__date__gte=year_start).aggregate(t=Sum('total'))['t'] or 0
-
-            dev_hoy       = canceladas.filter(created_at__date=today).count()
-            dev_mes       = canceladas.filter(created_at__date__gte=month_start).count()
-            monto_dev_mes = canceladas.filter(created_at__date__gte=month_start).aggregate(t=Sum('total'))['t'] or 0
-
-            cajas = AperturaCaja.objects.filter(
-                sede=sede, status=AperturaCaja.Status.ABIERTA
-            ).select_related('cajero')
-            cajas_abiertas = [
-                {
-                    'cajero_name': c.cajero.get_full_name(),
-                    'desde':       c.fecha_apertura.strftime('%H:%M'),
-                }
-                for c in cajas
-            ]
+            v = ventas_by_sede.get(sede.id, {})
+            c = cancel_by_sede.get(sede.id, {})
 
             result.append({
                 'sede_id':                sede.id,
                 'sede_name':              sede.name,
-                'ingresos_hoy':           str(ingresos_hoy),
-                'ingresos_semana':        str(ingresos_semana),
-                'ingresos_mes':           str(ingresos_mes),
-                'ingresos_anio':          str(ingresos_anio),
-                'devoluciones_hoy':       dev_hoy,
-                'devoluciones_mes':       dev_mes,
-                'monto_devoluciones_mes': str(monto_dev_mes),
-                'cajas_abiertas':         cajas_abiertas,
+                'ingresos_hoy':           str(v.get('ingresos_hoy',    Decimal('0'))),
+                'ingresos_semana':        str(v.get('ingresos_semana', Decimal('0'))),
+                'ingresos_mes':           str(v.get('ingresos_mes',    Decimal('0'))),
+                'ingresos_anio':          str(v.get('ingresos_anio',   Decimal('0'))),
+                'devoluciones_hoy':       c.get('dev_hoy',      0),
+                'devoluciones_mes':       c.get('dev_mes',      0),
+                'monto_devoluciones_mes': str(c.get('monto_dev_mes', Decimal('0'))),
+                'cajas_abiertas':         cajas_by_sede.get(sede.id, []),
             })
 
         return Response({'success': True, 'data': result})
 
 
 # ─── Reportes ─────────────────────────────────────────────────────────────────
+
+class VentasTendenciaView(APIView):
+    """
+    GET /api/sales/tendencia/?dias=7
+    Returns per-day sales totals for the last N days (including zero-sale days).
+    ADMINISTRATOR only.
+    """
+    permission_classes = [IsAdministrator]
+
+    def get(self, request):
+        dias = int(request.query_params.get('dias', 7))
+        fecha_inicio = timezone.now().date() - timedelta(days=dias - 1)
+
+        datos = (
+            Venta.objects
+            .filter(status=Venta.Status.COMPLETADA, created_at__date__gte=fecha_inicio)
+            .annotate(dia=TruncDate('created_at'))
+            .values('dia')
+            .annotate(total=Sum('total'), ventas=Count('id'))
+            .order_by('dia')
+        )
+
+        # Construir lista completa de los N días (incluyendo días sin ventas)
+        resultado = []
+        for i in range(dias):
+            fecha = fecha_inicio + timedelta(days=i)
+            dia_data = next((d for d in datos if d['dia'] == fecha), None)
+            resultado.append({
+                'fecha': fecha.strftime('%d/%m'),
+                'dia': fecha.strftime('%a')[:3],
+                'total': float(dia_data['total']) if dia_data else 0,
+                'ventas': dia_data['ventas'] if dia_data else 0,
+            })
+
+        return Response({'success': True, 'data': resultado})
+
 
 class ReportesView(APIView):
     """
@@ -471,11 +606,11 @@ class ReportesCajaListView(APIView):
             'apertura__cajero', 'apertura__sede', 'apertura__autorizado_por'
         )
 
-        if user.role == 'ADMINISTRATOR':
+        if user.is_administrator:
             sede_id = request.query_params.get('sede_id', '').strip()
             if sede_id:
                 qs = qs.filter(apertura__sede_id=sede_id)
-        elif user.role in ('ENCARGADO', 'CASHIER', 'WORKER'):
+        elif user.is_encargado or user.is_cashier or user.is_worker:
             if not user.sede:
                 return Response({'success': True, 'data': []})
             qs = qs.filter(apertura__sede=user.sede)
@@ -507,9 +642,9 @@ class ReporteCajaDownloadView(APIView):
             return _not_found('Reporte')
 
         # Access control
-        if user.role == 'ADMINISTRATOR':
+        if user.is_administrator:
             pass  # full access
-        elif user.role in ('ENCARGADO', 'CASHIER', 'WORKER'):
+        elif user.is_encargado or user.is_cashier or user.is_worker:
             if not user.sede or reporte.apertura.sede != user.sede:
                 return Response({'success': False, 'message': 'Sin permisos para este reporte.'},
                                 status=status.HTTP_403_FORBIDDEN)

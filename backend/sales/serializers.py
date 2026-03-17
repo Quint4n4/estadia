@@ -54,7 +54,7 @@ class VentaCreateSerializer(serializers.Serializer):
     """
     sede         = serializers.PrimaryKeyRelatedField(queryset=Sede.objects.filter(is_active=True))
     items        = VentaItemCreateSerializer(many=True)
-    descuento    = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0'), default=Decimal('0'))
+    descuento    = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0'), max_value=Decimal('999999'), default=Decimal('0'))
     metodo_pago  = serializers.ChoiceField(choices=Venta.MetodoPago.choices, default=Venta.MetodoPago.EFECTIVO)
     monto_pagado = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0'), default=Decimal('0'))
     notas        = serializers.CharField(required=False, allow_blank=True, default='')
@@ -92,6 +92,9 @@ class VentaCreateSerializer(serializers.Serializer):
 
         if errors:
             raise serializers.ValidationError({'items': errors})
+
+        if subtotal > 0 and descuento > subtotal:
+            raise serializers.ValidationError({'descuento': 'El descuento no puede ser mayor al subtotal.'})
 
         total = subtotal - descuento
         if total < 0:

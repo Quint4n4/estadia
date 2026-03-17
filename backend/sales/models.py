@@ -61,6 +61,12 @@ class Venta(models.Model):
         ordering = ['-created_at']
         verbose_name = 'Venta'
         verbose_name_plural = 'Ventas'
+        indexes = [
+            models.Index(fields=['sede', 'status'],     name='venta_sede_status_idx'),
+            models.Index(fields=['sede', 'created_at'], name='venta_sede_created_idx'),
+            models.Index(fields=['cajero', 'status'],   name='venta_cajero_status_idx'),
+            models.Index(fields=['created_at', 'status'], name='venta_created_status_idx'),
+        ]
 
     def __str__(self):
         return f'Venta #{self.id} — {self.sede.name} — ${self.total}'
@@ -153,6 +159,10 @@ class AperturaCaja(models.Model):
         ordering = ['-fecha_apertura']
         verbose_name = 'Apertura de caja'
         verbose_name_plural = 'Aperturas de caja'
+        indexes = [
+            models.Index(fields=['cajero', 'status'], name='apertura_cajero_status_idx'),
+            models.Index(fields=['sede',   'status'], name='apertura_sede_status_idx'),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=['cajero'],

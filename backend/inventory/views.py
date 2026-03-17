@@ -4,7 +4,8 @@ MarcaMoto, ModeloMoto, Producto (with fitment), Stock,
 EntradaInventario, AuditoriaInventario / AuditoriaItem
 """
 from django.db import transaction
-from django.db.models import Q, F
+from django.db.models import Q, F, Sum, Count, IntegerField
+from django.db.models.functions import Coalesce
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -70,10 +71,14 @@ class CategoriaListCreateView(APIView):
         return [IsAdministratorOrWorker()] if self.request.method == 'POST' else [IsAuthenticated()]
 
     def get(self, request):
-        qs = Categoria.objects.prefetch_related('subcategorias')
         is_active = request.query_params.get('is_active', '').strip()
+        # Por defecto solo activas; pasar ?is_active=false para ver inactivas
         if is_active in ('true', 'false'):
-            qs = qs.filter(is_active=(is_active == 'true'))
+            qs = Categoria.objects.prefetch_related('subcategorias').filter(is_active=(is_active == 'true'))
+        else:
+            qs = Categoria.objects.prefetch_related('subcategorias').filter(is_active=True)
+        # PERF-006: annotate product_count so the serializer needs 0 extra queries per category
+        qs = qs.annotate(product_count=Count('productos', filter=Q(productos__is_active=True)))
         result = _paginate(qs, request)
         return Response({'success': True, 'data': {
             'categories': CategoriaSerializer(result['queryset'], many=True).data,
@@ -146,13 +151,17 @@ class SubcategoriaListCreateView(APIView):
         return [IsAdministratorOrWorker()] if self.request.method == 'POST' else [IsAuthenticated()]
 
     def get(self, request):
-        qs = Subcategoria.objects.select_related('categoria')
         cat_id    = request.query_params.get('categoria', '').strip()
         is_active = request.query_params.get('is_active', '').strip()
+        # Por defecto solo activas; pasar ?is_active=false para ver inactivas
+        if is_active in ('true', 'false'):
+            qs = Subcategoria.objects.select_related('categoria').filter(is_active=(is_active == 'true'))
+        else:
+            qs = Subcategoria.objects.select_related('categoria').filter(is_active=True)
         if cat_id:
             qs = qs.filter(categoria_id=cat_id)
-        if is_active in ('true', 'false'):
-            qs = qs.filter(is_active=(is_active == 'true'))
+        # PERF-006: annotate product_count so the serializer needs 0 extra queries per subcategory
+        qs = qs.annotate(product_count=Count('productos', filter=Q(productos__is_active=True)))
         result = _paginate(qs, request, default_size=100)
         return Response({'success': True, 'data': {
             'subcategories': SubcategoriaSerializer(result['queryset'], many=True).data,
@@ -214,11 +223,13 @@ class MarcaFabricanteListCreateView(APIView):
         return [IsAdministratorOrWorker()] if self.request.method == 'POST' else [IsAuthenticated()]
 
     def get(self, request):
-        qs = MarcaFabricante.objects.all()
         is_active = request.query_params.get('is_active', '').strip()
         tipo      = request.query_params.get('tipo', '').strip()
+        # Por defecto solo activas; pasar ?is_active=false para ver inactivas
         if is_active in ('true', 'false'):
-            qs = qs.filter(is_active=(is_active == 'true'))
+            qs = MarcaFabricante.objects.filter(is_active=(is_active == 'true'))
+        else:
+            qs = MarcaFabricante.objects.filter(is_active=True)
         if tipo:
             qs = qs.filter(tipo=tipo)
         return Response({'success': True, 'data': MarcaFabricanteSerializer(qs, many=True).data})
@@ -266,7 +277,10 @@ class MarcaMotoListCreateView(APIView):
         return [IsAdministratorOrWorker()] if self.request.method == 'POST' else [IsAuthenticated()]
 
     def get(self, request):
-        qs = MarcaMoto.objects.filter(is_active=True)
+        # PERF-006: annotate modelos_count so the serializer needs 0 extra queries per marca
+        qs = MarcaMoto.objects.filter(is_active=True).annotate(
+            modelos_count=Count('modelos', filter=Q(modelos__is_active=True))
+        )
         return Response({'success': True, 'data': MarcaMotoSerializer(qs, many=True).data})
 
     def post(self, request):
@@ -423,9 +437,20 @@ class ProductoListCreateView(APIView):
         if sede_id:
             qs = qs.filter(stock_items__sede_id=sede_id)
         if low_stock == 'true':
-            qs = qs.filter(stock_items__quantity__lte=F('stock_items__min_quantity'))
+            if request.user.is_administrator:
+                # Administrador: low stock en todas las sedes
+                qs = qs.filter(stock_items__quantity__lte=F('stock_items__min_quantity'))
+            elif request.user.sede:
+                # Usuarios de sede: solo low stock en su propia sede
+                qs = qs.filter(
+                    stock_items__sede=request.user.sede,
+                    stock_items__quantity__lte=F('stock_items__min_quantity')
+                )
 
         qs = qs.distinct()
+        qs = qs.annotate(
+            total_stock=Coalesce(Sum('stock_items__quantity'), 0, output_field=IntegerField())
+        )
         result = _paginate(qs, request)
         return Response({'success': True, 'data': {
             'products':   ProductoSerializer(result['queryset'], many=True, context={'request': request}).data,
@@ -650,6 +675,8 @@ class AuditoriaListCreateView(APIView):
             qs = qs.filter(sede_id=sede_id)
         if status_filter:
             qs = qs.filter(status=status_filter)
+        # PERF-006: annotate items_count so the serializer needs 0 extra queries per auditoría
+        qs = qs.annotate(items_count=Count('items'))
         result = _paginate(qs, request)
         return Response({'success': True, 'data': {
             'audits':     AuditoriaInventarioSerializer(result['queryset'], many=True).data,
@@ -729,8 +756,19 @@ class AuditoriaFinalizeView(APIView):
                              'message': f'Hay {pending} productos sin conteo físico.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        for item in audit.items.all():
-            Stock.objects.filter(producto=item.producto, sede=audit.sede).update(quantity=item.stock_fisico)
+        # PERF-004: bulk update — 1 SELECT FOR UPDATE + 1 UPDATE instead of N UPDATEs
+        items_list = list(audit.items.select_related('producto').all())
+        prod_ids   = [item.producto_id for item in items_list]
+        qty_map    = {item.producto_id: item.stock_fisico for item in items_list}
+
+        stocks = list(
+            Stock.objects.select_for_update().filter(
+                producto_id__in=prod_ids, sede=audit.sede
+            )
+        )
+        for stock in stocks:
+            stock.quantity = qty_map.get(stock.producto_id, stock.quantity)
+        Stock.objects.bulk_update(stocks, ['quantity'])
 
         audit.status = AuditoriaInventario.Status.FINALIZADA
         audit.save()

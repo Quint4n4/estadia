@@ -3,15 +3,13 @@ from rest_framework.permissions import BasePermission
 
 class IsCajeroOrAbove(BasePermission):
     """CASHIER, ENCARGADO, and ADMINISTRATOR can register sales."""
-    ALLOWED = {'CASHIER', 'ENCARGADO', 'ADMINISTRATOR'}
-
     message = 'No tienes permisos para esta acción. Se requiere rol Cajero o superior.'
 
     def has_permission(self, request, view):
         return (
             request.user and
             request.user.is_authenticated and
-            request.user.role in self.ALLOWED
+            (request.user.is_cashier or request.user.is_encargado or request.user.is_administrator)
         )
 
 
@@ -23,19 +21,17 @@ class IsAdministrator(BasePermission):
         return (
             request.user and
             request.user.is_authenticated and
-            request.user.role == 'ADMINISTRATOR'
+            request.user.is_administrator
         )
 
 
 class IsEncargadoOrAbove(BasePermission):
     """ENCARGADO and ADMINISTRATOR can manage cash registers and generate codes."""
-    ALLOWED = {'ENCARGADO', 'ADMINISTRATOR'}
-
     message = 'No tienes permisos para esta acción. Se requiere rol Encargado o superior.'
 
     def has_permission(self, request, view):
         return (
             request.user and
             request.user.is_authenticated and
-            request.user.role in self.ALLOWED
+            (request.user.is_encargado or request.user.is_administrator)
         )

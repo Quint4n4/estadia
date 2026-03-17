@@ -244,6 +244,10 @@ class LoginAuditLog(models.Model):
         ordering = ['-timestamp']
         verbose_name = 'Registro de acceso'
         verbose_name_plural = 'Registros de acceso'
+        indexes = [
+            models.Index(fields=['email', 'timestamp'],      name='audit_email_ts_idx'),
+            models.Index(fields=['event_type', 'timestamp'], name='audit_event_ts_idx'),
+        ]
 
     def __str__(self):
         return f'[{self.timestamp:%Y-%m-%d %H:%M}] {self.event_type} — {self.email}'
