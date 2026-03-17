@@ -259,6 +259,87 @@
   color: var(--worker-text);
 }
 
+/* ── UX-022: Botón "Marcar completado" ── */
+.worker-btn-completar {
+  margin-top: 0.25rem;
+  width: 100%;
+  padding: 0.65rem;
+  background: var(--color-success, #48bb78);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm, 8px);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.2px;
+  transition: background 150ms, opacity 150ms;
+}
+.worker-btn-completar:hover:not(:disabled) {
+  background: #38a169;
+}
+.worker-btn-completar:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* ── UX-022: Sección "Completados hoy" ── */
+.worker-completados-section {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 2px dashed var(--worker-border);
+}
+
+.worker-completados-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--worker-text-sec);
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.worker-completados-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.worker-completado-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  opacity: 0.8;
+}
+
+.worker-completado-num {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--worker-text);
+}
+
+.worker-completado-cajero {
+  font-size: 13px;
+  color: var(--worker-text-sec);
+  flex: 1;
+}
+
+.worker-completado-time {
+  font-size: 12px;
+  color: var(--worker-text-sec);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── UX-021: Scroll suave en el contenedor de items ── */
+.worker-card-items {
+  /* El scroll se controla con inline style (maxHeight + overflowY) */
+  /* Aseguramos que el gap y scroll-behavior sean correctos */
+  scroll-behavior: smooth;
+}
+
 /* ── Responsive: pantalla grande (TV) ── */
 @media (min-width: 1280px) {
   .worker-grid {

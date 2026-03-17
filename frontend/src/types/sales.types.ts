@@ -123,6 +123,13 @@ export interface ReportesData {
   };
 }
 
+export interface TendenciaPoint {
+  fecha:  string;
+  dia:    string;
+  total:  number;
+  ventas: number;
+}
+
 export interface SedeResumenVentas {
   sede_id:                number;
   sede_name:              string;

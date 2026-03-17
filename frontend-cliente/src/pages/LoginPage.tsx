@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ChevronLeft, Eye, EyeOff } from 'lucide-react';
+import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { customersService } from '../api/customers.service';
 import './AuthPage.css';
@@ -23,14 +24,20 @@ const LoginPage: React.FC = () => {
     setLoading(true);
     try {
       const tokens  = await customersService.login(form);
-      // store tokens first so getPerfil has auth header
-      localStorage.setItem('mqf_access',  tokens.access);
-      localStorage.setItem('mqf_refresh', tokens.refresh);
+      // store access token in memory so getPerfil request has auth header
+      // (loginWithTokens will persist everything properly via tokenStore)
+      const { tokenStore } = await import('../utils/tokenStore');
+      tokenStore.setAccessToken(tokens.access);
       const profile = await customersService.getPerfil();
       loginWithTokens(tokens, profile);
       navigate('/home', { replace: true });
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Email o contraseña incorrectos.');
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        setError(err.response?.data?.detail || 'Email o contraseña incorrectos.');
+      } else {
+        console.error('[LoginPage] Error inesperado:', err);
+        setError('Email o contraseña incorrectos.');
+      }
     } finally {
       setLoading(false);
     }

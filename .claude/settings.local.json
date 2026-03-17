@@ -10,9 +10,13 @@
       "Bash(xargs ls -la)",
       "WebFetch(domain:www.sat.gob.mx)",
       "Bash(xargs grep:*)",
-      "Bash(where pg_dump)"
+      "Bash(where pg_dump)",
+      "WebSearch",
+      "Bash(gh api:*)",
+      "Bash(pip show:*)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enableAllProjectMcpServers": true
 }

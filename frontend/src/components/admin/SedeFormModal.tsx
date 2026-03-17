@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 import { branchesService } from '../../api/branches.service';
 import type { SedeDetail, SedeCreatePayload, SedeUpdatePayload } from '../../types/auth.types';
 import { X } from 'lucide-react';
@@ -61,16 +62,21 @@ const SedeFormModal: React.FC<Props> = ({ sede, onClose, onSaved }) => {
         await branchesService.create(payload);
       }
       onSaved();
-    } catch (err: any) {
-      const data = err?.response?.data;
-      if (data?.errors) {
-        const mapped: Record<string, string> = {};
-        for (const [k, v] of Object.entries(data.errors)) {
-          mapped[k] = Array.isArray(v) ? (v as string[]).join(' ') : String(v);
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const data = err.response?.data;
+        if (data?.errors) {
+          const mapped: Record<string, string> = {};
+          for (const [k, v] of Object.entries(data.errors)) {
+            mapped[k] = Array.isArray(v) ? (v as string[]).join(' ') : String(v);
+          }
+          setErrors(mapped);
+        } else {
+          setGlobalError(data?.message ?? 'Ocurrió un error inesperado');
         }
-        setErrors(mapped);
       } else {
-        setGlobalError(data?.message ?? 'Ocurrió un error inesperado');
+        console.error('[SedeFormModal] Error inesperado:', err);
+        setGlobalError('Ocurrió un error inesperado');
       }
     } finally {
       setIsSubmitting(false);

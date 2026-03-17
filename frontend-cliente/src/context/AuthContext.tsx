@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import axios from 'axios';
 import type { ClienteProfile, AuthTokens } from '../types/customer.types';
 import { customersService } from '../api/customers.service';
+import { tokenStore } from '../utils/tokenStore';
+
+const BASE_URL = (import.meta as any).env?.VITE_API_URL ?? '/api';
 
 interface AuthState {
   profile:  ClienteProfile | null;
@@ -24,39 +28,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   useEffect(() => {
-    const access  = localStorage.getItem('mqf_access');
-    const cached  = localStorage.getItem('mqf_profile');
-    if (access && cached) {
-      setState({ profile: JSON.parse(cached), isAuth: true, loading: false });
-      // Re-validate silently
-      customersService.getPerfil()
-        .then(p => {
-          localStorage.setItem('mqf_profile', JSON.stringify(p));
-          setState({ profile: p, isAuth: true, loading: false });
-        })
-        .catch(() => setState({ profile: null, isAuth: false, loading: false }));
+    // Restore session on mount / F5:
+    // - refresh token lives in sessionStorage (survives reload, gone on tab close)
+    // - profile snapshot lives in sessionStorage for instant UI restore
+    const refresh  = tokenStore.getRefresh();
+    const cached   = tokenStore.getProfile();
+
+    if (refresh && cached) {
+      try {
+        const profile = JSON.parse(cached) as ClienteProfile;
+        // Optimistically restore UI while we re-validate
+        setState({ profile, isAuth: true, loading: false });
+
+        // Re-validate silently: exchange refresh token for a new access token,
+        // then fetch a fresh profile. Uses a plain axios call (not apiClient) to
+        // avoid a circular dependency with the interceptor.
+        axios.post(`${BASE_URL}/auth/refresh/`, { refresh })
+          .then(res => {
+            const newAccess: string = res.data.access;
+            tokenStore.setAccessToken(newAccess);
+            if (res.data.refresh) tokenStore.setRefresh(res.data.refresh);
+            return customersService.getPerfil();
+          })
+          .then(p => {
+            tokenStore.setProfile(JSON.stringify(p));
+            setState({ profile: p, isAuth: true, loading: false });
+          })
+          .catch(() => {
+            tokenStore.clear();
+            setState({ profile: null, isAuth: false, loading: false });
+          });
+      } catch {
+        // Corrupted profile JSON — force re-login
+        tokenStore.clear();
+        setState({ profile: null, isAuth: false, loading: false });
+      }
     } else {
       setState(s => ({ ...s, loading: false }));
     }
   }, []);
 
   const loginWithTokens = (tokens: AuthTokens, profile: ClienteProfile) => {
-    localStorage.setItem('mqf_access',  tokens.access);
-    localStorage.setItem('mqf_refresh', tokens.refresh);
-    localStorage.setItem('mqf_profile', JSON.stringify(profile));
+    tokenStore.setAccessToken(tokens.access);
+    tokenStore.setRefresh(tokens.refresh);
+    tokenStore.setProfile(JSON.stringify(profile));
     setState({ profile, isAuth: true, loading: false });
   };
 
   const logout = () => {
-    localStorage.removeItem('mqf_access');
-    localStorage.removeItem('mqf_refresh');
-    localStorage.removeItem('mqf_profile');
+    tokenStore.clear();
     setState({ profile: null, isAuth: false, loading: false });
   };
 
   const refreshProfile = async () => {
     const p = await customersService.getPerfil();
-    localStorage.setItem('mqf_profile', JSON.stringify(p));
+    tokenStore.setProfile(JSON.stringify(p));
     setState(s => ({ ...s, profile: p }));
   };
 

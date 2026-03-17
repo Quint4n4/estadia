@@ -1,5 +1,6 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { authService } from '../api/auth.service';
 import { getRoleHome } from '../utils/roleUtils';
@@ -33,6 +34,15 @@ const LoginPage: React.FC = () => {
   const [unlockMsg, setUnlockMsg]       = useState('');
   const [unlockLoading, setUnlockLoading] = useState(false);
 
+  // Session-expired message from axios interceptor / logout
+  useEffect(() => {
+    const msg = sessionStorage.getItem('session_expired_msg');
+    if (msg) {
+      setError(msg);
+      sessionStorage.removeItem('session_expired_msg');
+    }
+  }, []);
+
   // Countdown ticker
   useEffect(() => {
     if (!lockState || lockState.remaining <= 0) return;
@@ -55,27 +65,32 @@ const LoginPage: React.FC = () => {
     try {
       const user = await login({ email, password });
       navigate(getRoleHome(user.role));
-    } catch (err: any) {
-      const data = err?.response?.data;
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const data = err.response?.data;
 
-      if (data?.locked === true) {
-        // Account is now locked
-        setLockState({
-          remaining:       data.remaining_seconds ?? 1800,
-          lockedUntil:     data.locked_until ?? '',
-          unlockRequested: data.unlock_requested ?? false,
-          email,
-        });
-        setError('');
-      } else if (data?.locked === false && data?.remaining_attempts != null) {
-        // Wrong credentials but not yet locked
-        setRemainingAttempts(data.remaining_attempts);
-        setError(data.message ?? 'Credenciales incorrectas.');
+        if (data?.locked === true) {
+          // Account is now locked
+          setLockState({
+            remaining:       data.remaining_seconds ?? 1800,
+            lockedUntil:     data.locked_until ?? '',
+            unlockRequested: data.unlock_requested ?? false,
+            email,
+          });
+          setError('');
+        } else if (data?.locked === false && data?.remaining_attempts != null) {
+          // Wrong credentials but not yet locked
+          setRemainingAttempts(data.remaining_attempts);
+          setError(data.message ?? 'Credenciales incorrectas.');
+        } else {
+          setError(
+            data?.message ??
+            'Error al iniciar sesión. Verifica tus credenciales.'
+          );
+        }
       } else {
-        setError(
-          data?.message ??
-          'Error al iniciar sesión. Verifica tus credenciales.'
-        );
+        console.error('[LoginPage] Error inesperado:', err);
+        setError('Error al iniciar sesión. Verifica tus credenciales.');
       }
     } finally {
       setIsLoading(false);
@@ -90,7 +105,8 @@ const LoginPage: React.FC = () => {
       const r = await authService.requestUnlock(lockState.email);
       setUnlockMsg(r.message);
       setLockState((prev) => prev ? { ...prev, unlockRequested: true } : null);
-    } catch {
+    } catch (err: unknown) {
+      console.error('[LoginPage] Error al solicitar desbloqueo:', err);
       setUnlockMsg('No se pudo enviar la solicitud. Intenta de nuevo.');
     } finally {
       setUnlockLoading(false);

@@ -90,6 +90,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     authService.logout();
     tokenStore.clear();
     setUser(null);
+    sessionStorage.setItem('session_expired_msg', 'Tu sesión expiró. Por favor inicia sesión nuevamente.');
+    window.location.href = '/login';
   };
 
   return (

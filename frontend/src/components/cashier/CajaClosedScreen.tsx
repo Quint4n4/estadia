@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import axios from 'axios';
 import { salesService } from '../../api/sales.service';
 
 interface Props {
@@ -47,8 +48,14 @@ const CajaClosedScreen: React.FC<Props> = ({ onAbierta }) => {
     try {
       const res = await salesService.abrirCaja(codigo);
       onAbierta(res.data.id);
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? 'Código incorrecto o expirado.');
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const msg = err.response?.data?.message || 'Código inválido. Intenta de nuevo.';
+        setError(msg);
+      } else {
+        console.error('[CajaClosedScreen] Error inesperado:', err);
+        setError('Código inválido. Intenta de nuevo.');
+      }
       setDigits(['', '', '', '', '', '']);
       inputRefs.current[0]?.focus();
     } finally {
@@ -83,7 +90,10 @@ const CajaClosedScreen: React.FC<Props> = ({ onAbierta }) => {
           Caja cerrada
         </h2>
         <p style={{ margin: '0 0 32px', color: '#718096', fontSize: 14, lineHeight: 1.5 }}>
-          Solicita al encargado el código de apertura<br />e ingrésalo a continuación.
+          Solicita al encargado el código de apertura<br />e ingrésalo a continuación.<br />
+          <span style={{ fontSize: 12, color: '#a0aec0' }}>
+            El código de apertura es válido por 30 minutos. Si no tienes uno, solicítalo al encargado de tu sede.
+          </span>
         </p>
 
         <form onSubmit={handleSubmit}>
@@ -100,6 +110,7 @@ const CajaClosedScreen: React.FC<Props> = ({ onAbierta }) => {
                 value={d}
                 onChange={e => handleChange(i, e.target.value)}
                 onKeyDown={e => handleKeyDown(i, e)}
+                aria-label={`Dígito ${i + 1} del código de apertura`}
                 style={{
                   width: 48, height: 56, textAlign: 'center',
                   fontSize: 24, fontWeight: 700, letterSpacing: 0,

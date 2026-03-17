@@ -8,6 +8,7 @@ import type {
   MiEstadoCajaResponse,
   SedeResumenVentas,
   ReportesData,
+  TendenciaPoint,
 } from '../types/sales.types';
 
 const BASE = '/sales';
@@ -69,5 +70,9 @@ export const salesService = {
 
   reportes(params?: { sede_id?: number; fecha_desde?: string; fecha_hasta?: string }): Promise<{ success: boolean; data: ReportesData }> {
     return apiClient.get(`${BASE}/reportes/`, { params }).then(r => r.data);
+  },
+
+  getTendencia(dias = 7): Promise<{ success: boolean; data: TendenciaPoint[] }> {
+    return apiClient.get(`${BASE}/tendencia/?dias=${dias}`).then(r => r.data);
   },
 };

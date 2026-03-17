@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import { Pencil, Lock, Unlock, X, ChevronRight } from 'lucide-react';
 import { inventoryService } from '../../../api/inventory.service';
 import type { MarcaMoto, ModeloMoto, TipoMotor, TipoMoto } from '../../../types/inventory.types';
@@ -73,8 +74,8 @@ const ModeloFormModal: React.FC<ModeloFormProps> = ({ item, marcaId, marcaName, 
         await inventoryService.createMotoModel(payload);
       }
       onSaved();
-    } catch (err: any) {
-      const data = err?.response?.data;
+    } catch (err: unknown) {
+      const data = axios.isAxiosError(err) ? err.response?.data : undefined;
       if (data?.errors) {
         const mapped: Record<string, string> = {};
         for (const [k, v] of Object.entries(data.errors)) {
@@ -193,8 +194,8 @@ const MarcaFormModal: React.FC<MarcaFormProps> = ({ item, onClose, onSaved }) =>
         await inventoryService.createMotoBrand({ name: name.trim() });
       }
       onSaved();
-    } catch (err: any) {
-      const data = err?.response?.data;
+    } catch (err: unknown) {
+      const data = axios.isAxiosError(err) ? err.response?.data : undefined;
       setGlobalError(data?.message ?? data?.errors?.name?.[0] ?? 'Error inesperado');
     } finally {
       setSubmitting(false);

@@ -35,8 +35,10 @@ const NuevoPedidoForm: React.FC<NuevoPedidoFormProps> = ({ sedeId, onCreado, onC
       const { inventoryService } = await import('../../api/inventory.service');
       const r = await inventoryService.listProducts({ search: q, sede_id: sedeId, is_active: true, page_size: 20 } as any);
       setResults(r.data.products);
-    } catch { setResults([]); }
-    finally  { setSearching(false); }
+    } catch (err: unknown) {
+      console.error('[PedidoBodegaPanel] Error al buscar productos:', err);
+      setResults([]);
+    } finally { setSearching(false); }
   }, [sedeId]);
 
   useEffect(() => {
@@ -70,8 +72,10 @@ const NuevoPedidoForm: React.FC<NuevoPedidoFormProps> = ({ sedeId, onCreado, onC
         notas,
       });
       onCreado(pedido);
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Error al enviar el pedido.');
+    } catch (err: unknown) {
+      const msg = (err as any)?.response?.data?.message ?? 'Error al enviar el pedido.';
+      setError(msg);
+      console.error('[PedidoBodegaPanel] Error al crear pedido:', err);
     } finally {
       setEnviando(false);
     }
@@ -175,28 +179,37 @@ interface PedidoCardProps {
 const PedidoCard: React.FC<PedidoCardProps> = ({ pedido, onUpdate, onRemove }) => {
   const [expanded,   setExpanded]   = useState(true);
   const [procesando, setProcesando] = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
 
   const fmt = (iso: string) =>
     new Date(iso).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
   const marcarEntregado = async () => {
     setProcesando(true);
+    setError(null);
     try {
       const updated = await pedidosService.marcarEntregado(pedido.id);
       onUpdate(updated);
       onRemove(pedido.id);
-    } catch { /* silencioso */ }
-    finally  { setProcesando(false); }
+    } catch (err: unknown) {
+      const msg = (err as any)?.response?.data?.message || 'Error al marcar como entregado.';
+      setError(msg);
+      console.error('[PedidoBodegaPanel] Error al marcar entregado:', err);
+    } finally { setProcesando(false); }
   };
 
   const cancelar = async () => {
     if (!confirm('¿Cancelar este pedido?')) return;
     setProcesando(true);
+    setError(null);
     try {
       await pedidosService.cancelar(pedido.id);
       onRemove(pedido.id);
-    } catch { /* silencioso */ }
-    finally  { setProcesando(false); }
+    } catch (err: unknown) {
+      const msg = (err as any)?.response?.data?.message || 'Error al cancelar el pedido.';
+      setError(msg);
+      console.error('[PedidoBodegaPanel] Error al cancelar pedido:', err);
+    } finally { setProcesando(false); }
   };
 
   return (
@@ -232,6 +245,8 @@ const PedidoCard: React.FC<PedidoCardProps> = ({ pedido, onUpdate, onRemove }) =
           </div>
           {pedido.notas && <p className="pedido-card-notas">"{pedido.notas}"</p>}
 
+          {error && <p className="pedido-error">{error}</p>}
+
           <div className="pedido-card-actions">
             <button className="pedido-cancel-small-btn" onClick={cancelar} disabled={procesando}>
               <X size={13} /> Cancelar
@@ -256,7 +271,9 @@ const PedidoBodegaPanel: React.FC<Props> = ({ sedeId, onAgregarAlCarrito: _ }) =
     try {
       const data = await pedidosService.listar();
       setPedidos(data);
-    } catch { /* silencioso */ }
+    } catch (err: unknown) {
+      console.error('[PedidoBodegaPanel] Error al cargar pedidos:', err);
+    }
   }, []);
 
   useEffect(() => {

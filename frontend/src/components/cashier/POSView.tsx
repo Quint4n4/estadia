@@ -13,7 +13,7 @@ interface Props {
 const fmt = (n: number) =>
   n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 
-const DEBOUNCE_MS = 350;
+const DEBOUNCE_MS = 200;
 
 // ── Shared product card grid ──────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ const TextSearchMode: React.FC<{ sedeId: number; cart: CartItem[]; onAdd: (p: Pr
     try {
       const res = await inventoryService.listProducts({
         search: q, sede_id: sedeId, is_active: true, page_size: 40,
-      } as any);
+      });
       setResults(res.data.products);
     } catch { setResults([]); }
     finally  { setSearching(false); }
@@ -158,18 +158,19 @@ const MotoSearchMode: React.FC<{ sedeId: number; cart: CartItem[]; onAdd: (p: Pr
     inventoryService.listMotoBrands({ is_active: true })
       .then(r => setMarcas(r.data))
       .catch(() => {});
-    inventoryService.listCategories({ is_active: true } as any)
+    inventoryService.listCategories({ is_active: true })
       .then(r => setCategorias(r.data.categories ?? []))
       .catch(() => {});
   }, []);
 
-  // Load models when marca changes
+  // Load models when marca changes — only reset modelo, keep categoria intact
   useEffect(() => {
     setSelModelo(''); setModelos([]); setResults([]); setSearched(false);
     if (!selMarca) return;
-    inventoryService.listMotoModels({ marca: Number(selMarca), page_size: 300 } as any)
+    inventoryService.listMotoModels({ marca: Number(selMarca), page_size: 300 })
       .then(r => setModelos(r.data.models ?? []))
       .catch(() => {});
+    // intentionally NOT resetting selCategoria here
   }, [selMarca]);
 
   // Filter modelos by year if provided
@@ -185,16 +186,18 @@ const MotoSearchMode: React.FC<{ sedeId: number; cart: CartItem[]; onAdd: (p: Pr
     if (selModelo && !modelosFiltrados.find(m => String(m.id) === selModelo)) {
       setSelModelo('');
     }
-  }, [año]); // eslint-disable-line
+  }, [año, selModelo, modelosFiltrados]);
 
   const handleSearch = async () => {
     if (!selModelo && !selCategoria) return;
     setSearching(true); setSearched(true);
     try {
-      const params: Record<string, any> = { sede_id: sedeId, is_active: true, page_size: 60 };
-      if (selModelo)    params.moto_modelo_id = selModelo;
-      if (selCategoria) params.categoria      = selCategoria;
-      const res = await inventoryService.listProducts(params as any);
+      const params: import('../../types/inventory.types').ProductoListParams = {
+        sede_id: sedeId, is_active: true, page_size: 60,
+        ...(selModelo    ? { moto_modelo_id: Number(selModelo) }    : {}),
+        ...(selCategoria ? { categoria:      Number(selCategoria) } : {}),
+      };
+      const res = await inventoryService.listProducts(params);
       setResults(res.data.products);
 
       const m = modelos.find(x => String(x.id) === selModelo);
@@ -263,15 +266,19 @@ const MotoSearchMode: React.FC<{ sedeId: number; cart: CartItem[]; onAdd: (p: Pr
         >
           {searching ? 'Buscando…' : 'Buscar piezas'}
         </button>
-        {(selMarca || selCategoria || results.length > 0) && (
-          <button onClick={handleClear} style={{
+        <button
+          onClick={handleClear}
+          disabled={!selMarca && !selModelo && !año && !selCategoria && results.length === 0}
+          style={{
             padding: '9px 14px', fontSize: 13, borderRadius: 'var(--radius-sm)',
             border: '1.5px solid var(--color-border)', background: 'transparent',
-            cursor: 'pointer', color: 'var(--color-text-secondary)',
-          }}>
-            Limpiar
-          </button>
-        )}
+            cursor: (!selMarca && !selModelo && !año && !selCategoria && results.length === 0) ? 'not-allowed' : 'pointer',
+            color: 'var(--color-text-secondary)',
+            opacity: (!selMarca && !selModelo && !año && !selCategoria && results.length === 0) ? 0.4 : 1,
+          }}
+        >
+          Limpiar filtros
+        </button>
       </div>
 
       {/* Empty state hint */}
@@ -346,11 +353,11 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
       .map(i => {
         if (i.producto_id !== producto_id) return i;
         const newQty = i.quantity + delta;
-        if (newQty <= 0) return null as any;
+        if (newQty <= 0) return null;
         if (newQty > i.stock_disponible) return i;
         return { ...i, quantity: newQty, subtotal: newQty * i.unit_price };
       })
-      .filter(Boolean)
+      .filter((i): i is CartItem => i !== null)
     );
   };
 
@@ -358,16 +365,21 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
   const clearCart     = ()           => setCart([]);
 
   // Totals
-  const [descuento,   setDescuento]   = useState(0);
-  const [metodoPago,  setMetodoPago]  = useState<MetodoPago>('EFECTIVO');
-  const [montoPagado, setMontoPagado] = useState(0);
+  const [descuentoInput, setDescuentoInput] = useState(0);
+  const [descuentoTipo,  setDescuentoTipo]  = useState<'MXN' | 'PCT'>('MXN');
+  const [metodoPago,     setMetodoPago]     = useState<MetodoPago>('EFECTIVO');
+  const [montoPagado,    setMontoPagado]    = useState(0);
 
-  const subtotal = cart.reduce((s, i) => s + i.subtotal, 0);
+  const subtotal  = cart.reduce((s, i) => s + i.subtotal, 0);
+  // Convert pct to MXN so the rest of the logic (and PaymentModal) always receives pesos
+  const descuento = descuentoTipo === 'PCT'
+    ? Math.min(subtotal, subtotal * descuentoInput / 100)
+    : Math.min(subtotal, descuentoInput);
   const total    = Math.max(0, subtotal - descuento);
   const cambio   = metodoPago === 'EFECTIVO' ? Math.max(0, montoPagado - total) : 0;
 
   useEffect(() => {
-    if (cart.length === 0) { setDescuento(0); setMontoPagado(0); }
+    if (cart.length === 0) { setDescuentoInput(0); setMontoPagado(0); }
   }, [cart.length]);
 
   const [showModal, setShowModal] = useState(false);
@@ -428,7 +440,10 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
               <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
             </svg>
-            <span>El carrito está vacío</span>
+            <span style={{ fontWeight: 600 }}>El carrito está vacío</span>
+            <span style={{ fontSize: '0.8125rem', textAlign: 'center', maxWidth: 180, lineHeight: 1.5 }}>
+              Busca productos en el panel izquierdo para agregar
+            </span>
           </div>
         ) : (
           <>
@@ -444,7 +459,10 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
                     <span className="pos-qty-value">{item.quantity}</span>
                     <button className="pos-qty-btn"
                       onClick={() => changeQty(item.producto_id, +1)}
-                      disabled={item.quantity >= item.stock_disponible}>+</button>
+                      disabled={item.quantity >= item.stock_disponible}
+                      title={item.quantity >= item.stock_disponible ? 'Stock máximo alcanzado' : 'Aumentar cantidad'}
+                      aria-label={item.quantity >= item.stock_disponible ? 'Stock máximo alcanzado' : 'Aumentar cantidad'}
+                    >+</button>
                   </div>
                   <span className="pos-cart-item-subtotal">{fmt(item.subtotal)}</span>
                   <button className="pos-remove-btn" onClick={() => removeItem(item.producto_id)} title="Quitar">
@@ -459,14 +477,34 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
 
             <div className="pos-cart-footer">
               <div className="pos-discount-row">
-                <label htmlFor="descuento">Descuento $</label>
-                <input
-                  id="descuento" className="pos-discount-input"
-                  type="number" min={0} max={subtotal} step={0.01}
-                  value={descuento || ''}
-                  onChange={e => setDescuento(Math.max(0, parseFloat(e.target.value) || 0))}
-                  placeholder="0.00"
-                />
+                <label htmlFor="descuento">
+                  Descuento {descuentoTipo === 'MXN' ? '$' : '%'}
+                </label>
+                <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                  <input
+                    id="descuento" className="pos-discount-input"
+                    type="number" min={0}
+                    max={descuentoTipo === 'PCT' ? 100 : subtotal}
+                    step={descuentoTipo === 'PCT' ? 0.1 : 0.01}
+                    value={descuentoInput || ''}
+                    onChange={e => setDescuentoInput(Math.max(0, parseFloat(e.target.value) || 0))}
+                    placeholder="0"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setDescuentoTipo(t => t === 'MXN' ? 'PCT' : 'MXN'); setDescuentoInput(0); }}
+                    title={descuentoTipo === 'MXN' ? 'Cambiar a porcentaje' : 'Cambiar a pesos'}
+                    style={{
+                      padding: '0.35rem 0.65rem', borderRadius: 'var(--radius-sm)',
+                      background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)',
+                      cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                      color: 'var(--color-text-secondary)', lineHeight: 1, flexShrink: 0,
+                    }}
+                  >
+                    {descuentoTipo === 'MXN' ? '$' : '%'}
+                  </button>
+                </div>
               </div>
               <div className="pos-totals">
                 <div className="pos-totals-row"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
@@ -516,7 +554,7 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
           sedeId={sedeId} items={cart} descuento={descuento}
           metodoPago={metodoPago} montoPagado={montoPagado}
           onClose={() => setShowModal(false)}
-          onSuccess={() => { clearCart(); setDescuento(0); setMontoPagado(0); setShowModal(false); }}
+          onSuccess={() => { clearCart(); setDescuentoInput(0); setMontoPagado(0); setShowModal(false); }}
         />
       )}
     </div>

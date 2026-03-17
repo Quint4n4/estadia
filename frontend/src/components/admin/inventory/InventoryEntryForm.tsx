@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import axios from 'axios';
 import { inventoryService } from '../../../api/inventory.service';
 import { branchesService } from '../../../api/branches.service';
 import type { Producto, EntradaInventario, EntradaPayload } from '../../../types/inventory.types';
@@ -56,8 +57,8 @@ const InventoryEntryForm: React.FC<Props> = ({ onClose, onSaved }) => {
       };
       await inventoryService.createEntry(payload);
       onSaved();
-    } catch (err: any) {
-      const data = err?.response?.data;
+    } catch (err: unknown) {
+      const data = axios.isAxiosError(err) ? err.response?.data : undefined;
       if (data?.errors) {
         const mapped: Record<string, string> = {};
         for (const [k, v] of Object.entries(data.errors)) {

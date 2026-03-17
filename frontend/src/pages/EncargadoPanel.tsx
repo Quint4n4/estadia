@@ -15,10 +15,14 @@ import {
   TrendingUp,
   FileText,
   PackagePlus,
+  ShoppingCart,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { authService } from '../api/auth.service';
+import { salesService } from '../api/sales.service';
 import type { SedeSnapshot } from '../types/auth.types';
+import type { SedeResumenVentas } from '../types/sales.types';
 import UsersList from '../components/admin/UsersList';
 import ProductsList from '../components/admin/inventory/ProductsList';
 import AuditView from '../components/admin/inventory/AuditView';
@@ -40,6 +44,107 @@ const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; group?: st
   { id: 'sales',          label: 'Ventas',          icon: <TrendingUp size={18} />, group: 'Ventas' },
   { id: 'reportes-caja', label: 'Reportes Caja', icon: <FileText size={18} />,   group: 'Ventas' },
 ];
+
+// ─── KPI strip ───────────────────────────────────────────────────────────────
+
+const kpiCardStyle: React.CSSProperties = {
+  background: 'var(--color-bg-card)',
+  borderRadius: 'var(--radius-md)',
+  padding: '1rem',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.25rem',
+  border: '1px solid var(--color-border)',
+  boxShadow: 'var(--shadow-sm)',
+};
+
+interface SedeKpiStripProps {
+  sedeId: number;
+}
+
+const SedeKpiStrip: React.FC<SedeKpiStripProps> = ({ sedeId }) => {
+  const [resumen, setResumen] = useState<SedeResumenVentas | null>(null);
+
+  useEffect(() => {
+    salesService.adminResumen()
+      .then(r => {
+        if (r.success) {
+          const match = r.data.find(s => s.sede_id === sedeId) ?? null;
+          setResumen(match);
+        }
+      })
+      .catch(() => { /* silently skip KPIs if endpoint fails */ });
+  }, [sedeId]);
+
+  if (!resumen) return null;
+
+  const ingresosHoy  = parseFloat(String(resumen.ingresos_hoy ?? 0));
+  const ingresosMes  = parseFloat(String(resumen.ingresos_mes ?? 0));
+  const devHoy       = resumen.devoluciones_hoy ?? 0;
+  // SedeResumenVentas no expone ventas_hoy directamente; usamos cajas_abiertas como proxy operativo
+  const cajasActivas = resumen.cajas_abiertas.length;
+
+  const kpis = [
+    {
+      label: 'Ingresos hoy',
+      value: ingresosHoy.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }),
+      color: 'var(--color-primary)',
+      icon: <TrendingUp size={16} />,
+    },
+    {
+      label: 'Ingresos del mes',
+      value: ingresosMes.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }),
+      color: 'var(--color-primary)',
+      icon: <TrendingUp size={16} />,
+    },
+    {
+      label: 'Devoluciones hoy',
+      value: String(devHoy),
+      color: devHoy > 0 ? 'var(--color-error, #c53030)' : 'var(--color-text-secondary)',
+      icon: <RotateCcw size={16} />,
+    },
+    {
+      label: 'Cajas activas',
+      value: String(cajasActivas),
+      color: cajasActivas > 0 ? 'var(--color-success, #22543d)' : 'var(--color-text-secondary)',
+      icon: <ShoppingCart size={16} />,
+    },
+  ];
+
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+      gap: '0.75rem',
+      marginBottom: '1.5rem',
+    }}>
+      {kpis.map(kpi => (
+        <div key={kpi.label} style={kpiCardStyle}>
+          <span style={{
+            fontSize: '0.75rem',
+            color: 'var(--color-text-muted, var(--color-text-secondary))',
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+          }}>
+            {kpi.icon}
+            {kpi.label}
+          </span>
+          <span style={{
+            fontSize: '1.4rem',
+            fontWeight: 700,
+            color: kpi.color,
+            lineHeight: 1.2,
+          }}>
+            {kpi.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 // ─── Sede overview for encargado ─────────────────────────────────────────────
 
@@ -80,6 +185,9 @@ const SedeOverview: React.FC<{ snapshot: SedeSnapshot | null; isLoading: boolean
           </button>
         </div>
       </div>
+
+      {/* Sales KPI strip — ingresos hoy/mes, devoluciones, cajas */}
+      <SedeKpiStrip sedeId={snapshot.id} />
 
       {/* KPI grid */}
       <div className="stats-grid" style={{ marginBottom: 28 }}>

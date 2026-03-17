@@ -45,6 +45,12 @@ const ControlCajasCard: React.FC<Props> = ({ sedeId }) => {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [expiresAt]);
 
+  const minutosAbierta = (fecha_apertura: string) => {
+    const apertura = new Date(fecha_apertura);
+    const ahora = new Date();
+    return Math.floor((ahora.getTime() - apertura.getTime()) / 60000);
+  };
+
   const handleGenerar = async () => {
     setIsGenerating(true);
     try {
@@ -76,6 +82,7 @@ const ControlCajasCard: React.FC<Props> = ({ sedeId }) => {
             style={{ fontSize: 13 }}
             onClick={handleGenerar}
             disabled={isGenerating}
+            aria-label="Generar código de apertura de caja"
           >
             {isGenerating ? 'Generando…' : 'Generar código de apertura'}
           </button>
@@ -85,6 +92,7 @@ const ControlCajasCard: React.FC<Props> = ({ sedeId }) => {
             style={{ fontSize: 13 }}
             onClick={handleGenerar}
             disabled={isGenerating}
+            aria-label="Generar un nuevo código de apertura de caja"
           >
             Generar nuevo
           </button>
@@ -137,28 +145,42 @@ const ControlCajasCard: React.FC<Props> = ({ sedeId }) => {
           <p style={{ margin: 0, fontSize: 13, color: '#718096' }}>No hay cajas abiertas actualmente.</p>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {cajasAbiertas.map(c => (
-              <div key={c.id} style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '6px 12px', background: '#f0fff4',
-                borderRadius: 8, border: '1px solid #c6f6d5',
-              }}>
-                <div style={{
-                  width: 28, height: 28, borderRadius: '50%',
-                  background: '#22543d', color: '#fff',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 11, fontWeight: 700, flexShrink: 0,
+            {cajasAbiertas.map(c => {
+              const mins = minutosAbierta(c.fecha_apertura);
+              const estiloTiempo = mins > 240
+                ? { color: 'var(--color-danger)', fontWeight: 700 }
+                : { color: 'var(--color-text-muted)' };
+              const tiempoTexto = mins < 60
+                ? `${mins}m`
+                : `${Math.floor(mins / 60)}h ${mins % 60}m`;
+              return (
+                <div key={c.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '6px 12px', background: '#f0fff4',
+                  borderRadius: 8,
+                  border: `1px solid ${mins > 240 ? 'var(--color-danger)' : '#c6f6d5'}`,
                 }}>
-                  {c.cajero_name.charAt(0)}
+                  <div style={{
+                    width: 28, height: 28, borderRadius: '50%',
+                    background: '#22543d', color: '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700, flexShrink: 0,
+                  }}>
+                    {c.cajero_name.charAt(0)}
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{c.cajero_name}</p>
+                    <p style={{ margin: 0, fontSize: 11, color: '#718096' }}>
+                      Desde {new Date(c.fecha_apertura).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    <span style={{ fontSize: 11, ...estiloTiempo }}>
+                      {mins > 240 ? '⚠️ ' : ''}{tiempoTexto}
+                      {mins > 240 ? ' — Abierta demasiado tiempo' : ''}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{c.cajero_name}</p>
-                  <p style={{ margin: 0, fontSize: 11, color: '#718096' }}>
-                    Desde {new Date(c.fecha_apertura).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

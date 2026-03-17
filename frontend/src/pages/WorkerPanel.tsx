@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Package, LogOut, Wifi, WifiOff } from 'lucide-react';
+import { MapPin, Package, LogOut, Wifi, WifiOff, CheckCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { pedidosService } from '../api/pedidos.service';
 import type { PedidoBodega } from '../types/pedidos.types';
@@ -12,30 +12,54 @@ const WorkerPanel: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
-  const [pedidos,     setPedidos]     = useState<PedidoBodega[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [online,      setOnline]      = useState(true);
-  const [lastUpdate,  setLastUpdate]  = useState<Date | null>(null);
+  const [pedidos,      setPedidos]      = useState<PedidoBodega[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [online,       setOnline]       = useState(true);
+  const [lastUpdate,   setLastUpdate]   = useState<Date | null>(null);
+  // UX-022: IDs completados localmente (pendiente confirmación o ya confirmados)
+  const [completados,  setCompletados]  = useState<Set<number>>(new Set());
+  const [completando,  setCompletando]  = useState<Set<number>>(new Set());
 
-  const fetchPedidos = useCallback(async () => {
+  const fetchPedidos = useCallback(async (isMounted: () => boolean) => {
     try {
       const data = await pedidosService.listar();
-      setPedidos(data);
-      setOnline(true);
-      setLastUpdate(new Date());
+      if (isMounted()) {
+        setPedidos(data);
+        setOnline(true);
+        setLastUpdate(new Date());
+      }
     } catch {
-      setOnline(false);
+      if (isMounted()) setOnline(false);
     } finally {
-      setLoading(false);
+      if (isMounted()) setLoading(false);
     }
   }, []);
 
   // Carga inicial + polling
   useEffect(() => {
-    fetchPedidos();
-    const interval = setInterval(fetchPedidos, POLL_INTERVAL);
-    return () => clearInterval(interval);
+    let mounted = true;
+    const isMounted = () => mounted;
+
+    fetchPedidos(isMounted);
+    const interval = setInterval(() => fetchPedidos(isMounted), POLL_INTERVAL);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, [fetchPedidos]);
+
+  // UX-022: marcar pedido como completado via API, con fallback local
+  const marcarCompletado = useCallback(async (pedidoId: number) => {
+    setCompletando(prev => new Set([...prev, pedidoId]));
+    try {
+      await pedidosService.marcarEntregado(pedidoId);
+    } catch {
+      // Si falla la API igual marcamos localmente para no bloquear al worker
+    } finally {
+      setCompletando(prev => { const s = new Set(prev); s.delete(pedidoId); return s; });
+      setCompletados(prev => new Set([...prev, pedidoId]));
+    }
+  }, []);
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
@@ -56,13 +80,28 @@ const WorkerPanel: React.FC = () => {
             {online ? <Wifi size={14} /> : <WifiOff size={14} />}
             {online
               ? lastUpdate ? `Act. ${fmt(lastUpdate.toISOString())}` : 'Conectado'
-              : 'Sin conexión'}
+              : (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <span style={{ color: 'var(--color-danger)' }}>Sin conexión</span>
+                  <button
+                    onClick={() => { let alive = true; fetchPedidos(() => alive); }}
+                    aria-label="Intentar reconectar con el servidor"
+                    style={{
+                      padding: '4px 12px', borderRadius: 'var(--radius-sm)',
+                      background: 'var(--color-primary)', color: '#fff',
+                      border: 'none', cursor: 'pointer', fontSize: '0.8rem',
+                    }}
+                  >
+                    Reconectar
+                  </button>
+                </span>
+              )}
           </span>
         </div>
 
         <div className="worker-header-right">
           <span className="worker-username">{user?.full_name}</span>
-          <button className="worker-logout-btn" onClick={handleLogout} title="Cerrar sesión">
+          <button className="worker-logout-btn" onClick={handleLogout} title="Cerrar sesión" aria-label="Cerrar sesión">
             <LogOut size={18} />
           </button>
         </div>
@@ -85,48 +124,113 @@ const WorkerPanel: React.FC = () => {
           </div>
 
         ) : (
-          <div className="worker-grid">
-            {pedidos.map(pedido => (
-              <div key={pedido.id} className="worker-card">
+          <>
+            {/* ── Pedidos pendientes ── */}
+            {pedidos.filter(p => !completados.has(p.id)).length === 0 ? (
+              <div className="worker-empty">
+                <CheckCircle size={72} strokeWidth={1} color="var(--worker-empty-color)" />
+                <h2>¡Todo entregado!</h2>
+                <p>No quedan pedidos pendientes por ahora.</p>
+              </div>
+            ) : (
+              <div className="worker-grid">
+                {pedidos
+                  .filter(pedido => !completados.has(pedido.id))
+                  .map(pedido => (
+                    <div key={pedido.id} className="worker-card">
 
-                {/* Número de pedido + hora */}
-                <div className="worker-card-header">
-                  <span className="worker-card-num">#{pedido.id}</span>
-                  <span className="worker-card-time">{fmt(pedido.created_at)}</span>
-                </div>
-
-                {/* Cajero que lo pidió */}
-                <p className="worker-card-cajero">{pedido.cajero_name}</p>
-
-                {/* Notas */}
-                {pedido.notas && (
-                  <p className="worker-card-notas">"{pedido.notas}"</p>
-                )}
-
-                {/* Items */}
-                <div className="worker-card-items">
-                  {pedido.items.map(item => (
-                    <div key={item.id} className="worker-item">
-                      <div className="worker-item-info">
-                        <span className="worker-item-name">{item.producto_name}</span>
-                        <span className="worker-item-sku">{item.producto_sku}</span>
+                      {/* Número de pedido + hora */}
+                      <div className="worker-card-header">
+                        <span className="worker-card-num">#{pedido.id}</span>
+                        <span className="worker-card-time">{fmt(pedido.created_at)}</span>
                       </div>
-                      <div className="worker-item-right">
-                        {item.ubicacion && (
-                          <span className="worker-item-ubicacion">
-                            <MapPin size={14} />
-                            {item.ubicacion}
-                          </span>
-                        )}
-                        <span className="worker-item-qty">×{item.cantidad}</span>
+
+                      {/* Cajero que lo pidió */}
+                      <p className="worker-card-cajero">{pedido.cajero_name}</p>
+
+                      {/* Notas */}
+                      {pedido.notas && (
+                        <p className="worker-card-notas">"{pedido.notas}"</p>
+                      )}
+
+                      {/* UX-021 — Items con scroll interno cuando hay 10+ items */}
+                      <div
+                        className="worker-card-items"
+                        style={{
+                          maxHeight: '280px',
+                          overflowY: 'auto',
+                          WebkitOverflowScrolling: 'touch',
+                        }}
+                      >
+                        {pedido.items.map(item => (
+                          <div key={item.id} className="worker-item">
+                            <div className="worker-item-info">
+                              <span className="worker-item-name">{item.producto_name}</span>
+                              <span className="worker-item-sku">{item.producto_sku}</span>
+                            </div>
+                            <div className="worker-item-right">
+                              {item.ubicacion && (
+                                <span className="worker-item-ubicacion">
+                                  <MapPin size={14} />
+                                  {item.ubicacion}
+                                </span>
+                              )}
+                              <span className="worker-item-qty">×{item.cantidad}</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
+
+                      {/* UX-021 — Indicador de scroll cuando hay más de 5 items */}
+                      {pedido.items.length > 5 && (
+                        <p style={{
+                          fontSize: '0.75rem',
+                          color: 'var(--color-text-muted, var(--worker-text-sec))',
+                          textAlign: 'center',
+                          padding: '0.5rem 0 0',
+                          borderTop: '1px solid var(--color-border, var(--worker-border))',
+                          margin: 0,
+                        }}>
+                          {pedido.items.length} items en total — desplázate para ver más
+                        </p>
+                      )}
+
+                      {/* UX-022 — Botón Marcar completado */}
+                      <button
+                        onClick={() => marcarCompletado(pedido.id)}
+                        disabled={completando.has(pedido.id)}
+                        className="worker-btn-completar"
+                        aria-label="Marcar este pedido como completado"
+                      >
+                        {completando.has(pedido.id) ? 'Entregando…' : '✓ Marcar completado'}
+                      </button>
+
                     </div>
                   ))}
-                </div>
-
               </div>
-            ))}
-          </div>
+            )}
+
+            {/* UX-022 — Sección "Completados hoy" */}
+            {completados.size > 0 && (
+              <section className="worker-completados-section">
+                <h3 className="worker-completados-title">
+                  Completados hoy ({completados.size})
+                </h3>
+                <div className="worker-completados-list">
+                  {pedidos
+                    .filter(p => completados.has(p.id))
+                    .map(p => (
+                      <div key={p.id} className="worker-completado-item">
+                        <CheckCircle size={16} color="var(--color-success, #48bb78)" />
+                        <span className="worker-completado-num">#{p.id}</span>
+                        <span className="worker-completado-cajero">{p.cajero_name}</span>
+                        <span className="worker-completado-time">{fmt(p.created_at)}</span>
+                      </div>
+                    ))}
+                </div>
+              </section>
+            )}
+          </>
         )}
       </main>
     </div>

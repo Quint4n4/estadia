@@ -18,6 +18,10 @@ import {
   List,
   Receipt,
   FileText,
+  DollarSign,
+  TrendingDown,
+  ShoppingCart,
+  BarChart2,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { authService } from '../api/auth.service';
@@ -75,11 +79,23 @@ interface OverviewProps {
   onNavigateSecurity: () => void;
 }
 
+const fmtMXN = (n: number) =>
+  `$${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 const DashboardOverview: React.FC<OverviewProps> = ({ stats, sedes, resumen, isLoading, error, onRefresh, onNavigateSecurity }) => {
   const [selectedSede, setSelectedSede] = useState<SedeSnapshot | null>(null);
 
   const totalOnShift = sedes.reduce((acc, s) => acc + s.on_shift_now, 0);
   const totalAlerts  = sedes.reduce((acc, s) => acc + s.out_of_stock_count + s.low_stock_count, 0);
+
+  // Global financial totals derived from resumen data
+  const totalIngresosHoy    = resumen.reduce((sum, r) => sum + parseFloat(String(r.ingresos_hoy    ?? 0)), 0);
+  const totalIngresosMes    = resumen.reduce((sum, r) => sum + parseFloat(String(r.ingresos_mes    ?? 0)), 0);
+  const totalDevolucionesMes = resumen.reduce((sum, r) => sum + r.devoluciones_mes, 0);
+  const totalMontoDevMes    = resumen.reduce((sum, r) => sum + parseFloat(String(r.monto_devoluciones_mes ?? 0)), 0);
+
+  // Build a map for fast lookup: sedeId → resumen
+  const resumenMap = new Map(resumen.map(r => [r.sede_id, r]));
 
   if (isLoading) {
     return <div className="table-loading">Cargando dashboard...</div>;
@@ -92,8 +108,8 @@ const DashboardOverview: React.FC<OverviewProps> = ({ stats, sedes, resumen, isL
 
       {error && <div className="error-banner">{error}</div>}
 
-      {/* Top KPI strip */}
-      <div className="stats-grid" style={{ marginBottom: 28 }}>
+      {/* Top KPI strip — operativo */}
+      <div className="stats-grid" style={{ marginBottom: 20 }}>
         {[
           { label: 'Total usuarios',  value: stats?.total_users ?? 0,     color: 'blue',   icon: <Users size={22} /> },
           { label: 'Sedes activas',   value: sedes.length,                color: 'purple', icon: <Building2 size={22} /> },
@@ -110,6 +126,49 @@ const DashboardOverview: React.FC<OverviewProps> = ({ stats, sedes, resumen, isL
         ))}
       </div>
 
+      {/* Financial KPI strip */}
+      {resumen.length > 0 && (
+        <>
+          <h3 className="section-subtitle" style={{ margin: '0 0 12px' }}>Resumen financiero global</h3>
+          <div className="stats-grid" style={{ marginBottom: 28 }}>
+            {[
+              {
+                label: 'Ingresos hoy',
+                value: fmtMXN(totalIngresosHoy),
+                color: 'blue',
+                icon: <DollarSign size={22} />,
+              },
+              {
+                label: 'Ingresos del mes',
+                value: fmtMXN(totalIngresosMes),
+                color: 'green',
+                icon: <BarChart2 size={22} />,
+              },
+              {
+                label: 'Devoluciones mes',
+                value: String(totalDevolucionesMes),
+                color: totalDevolucionesMes > 0 ? 'red' : 'green',
+                icon: <ShoppingCart size={22} />,
+              },
+              {
+                label: 'Monto dev. mes',
+                value: fmtMXN(totalMontoDevMes),
+                color: totalMontoDevMes > 0 ? 'red' : 'green',
+                icon: <TrendingDown size={22} />,
+              },
+            ].map((s) => (
+              <div key={s.label} className="stat-card">
+                <div className={`stat-icon ${s.color}`}>{s.icon}</div>
+                <div className="stat-content">
+                  <p className="stat-label">{s.label}</p>
+                  <p className="stat-value" style={{ fontSize: 16 }}>{s.value}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       {/* Sede cards */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 className="section-subtitle">Sedes</h3>
@@ -123,7 +182,12 @@ const DashboardOverview: React.FC<OverviewProps> = ({ stats, sedes, resumen, isL
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, marginBottom: 32 }}>
         {sedes.map(s => (
-          <SedeCard key={s.id} sede={s} onClick={setSelectedSede} />
+          <SedeCard
+            key={s.id}
+            sede={s}
+            resumen={resumenMap.get(s.id)}
+            onClick={setSelectedSede}
+          />
         ))}
         {sedes.length === 0 && (
           <p className="dashboard-empty-text">No hay sedes activas.</p>

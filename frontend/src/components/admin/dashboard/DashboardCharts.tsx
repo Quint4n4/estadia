@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  LineChart, Line,
 } from 'recharts';
 import type { SedeSnapshot, DashboardStats } from '../../../types/auth.types';
-import type { SedeResumenVentas } from '../../../types/sales.types';
+import type { SedeResumenVentas, TendenciaPoint } from '../../../types/sales.types';
+import { salesService } from '../../../api/sales.service';
 
 interface Props {
   sedes:   SedeSnapshot[];
@@ -33,6 +35,11 @@ const PERIODO_LABELS: Record<Periodo, string> = {
 
 const DashboardCharts: React.FC<Props> = ({ sedes, resumen }) => {
   const [periodo, setPeriodo] = useState<Periodo>('hoy');
+  const [tendencia, setTendencia] = useState<TendenciaPoint[]>([]);
+
+  useEffect(() => {
+    salesService.getTendencia(7).then(r => setTendencia(r.data)).catch(() => {});
+  }, []);
 
   // Stock alert chart
   const stockData = sedes.map(s => ({
@@ -93,6 +100,48 @@ const DashboardCharts: React.FC<Props> = ({ sedes, resumen }) => {
         })}
       </div>
 
+      {/* ── Tendencia ingresos 7 días ── */}
+      {tendencia.length > 0 && (
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <h4 className="dashboard-chart-title" style={{ margin: 0 }}>
+              Tendencia de ingresos — últimos 7 días
+            </h4>
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={tendencia} margin={{ left: 0, right: 16, top: 4, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              <XAxis
+                dataKey="dia"
+                tick={{ fontSize: 12, fill: 'var(--color-text-secondary)' }}
+              />
+              <YAxis
+                tick={{ fontSize: 12, fill: 'var(--color-text-secondary)' }}
+                tickFormatter={(v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
+                width={52}
+              />
+              <Tooltip
+                formatter={(v: number) => [`${fmt(v)}`, 'Ingresos']}
+                contentStyle={{
+                  background: 'var(--color-bg-card)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: 13,
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="total"
+                stroke="var(--color-primary)"
+                strokeWidth={2}
+                dot={{ r: 4, fill: 'var(--color-primary)', strokeWidth: 0 }}
+                activeDot={{ r: 6 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
       {/* ── Tabla ingresos por sede ── */}
       <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -109,8 +158,8 @@ const DashboardCharts: React.FC<Props> = ({ sedes, resumen }) => {
             Sin datos de ventas disponibles.
           </p>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: '600px' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
                   <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Sede</th>
@@ -249,22 +298,93 @@ const DashboardCharts: React.FC<Props> = ({ sedes, resumen }) => {
       )}
 
       {/* ── Alertas de inventario ── */}
-      <div style={cardStyle}>
-        <h4 className="dashboard-chart-title" style={{ marginBottom: 14 }}>Alertas de inventario por sede</h4>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={stockData} margin={{ left: -10, right: 10 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-            <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-text-secondary)' }} />
-            <YAxis tick={{ fontSize: 12, fill: 'var(--color-text-secondary)' }} allowDecimals={false} />
-            <Tooltip
-              contentStyle={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}
-            />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="Sin stock"  fill="#DC2626" radius={[4,4,0,0]} />
-            <Bar dataKey="Stock bajo" fill="#F97316" radius={[4,4,0,0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {(() => {
+        const usarLayoutHorizontal = stockData.length > 6;
+        const chartHeight = usarLayoutHorizontal ? Math.max(stockData.length * 48, 280) : 220;
+        return (
+          <div style={cardStyle}>
+            <h4 className="dashboard-chart-title" style={{ marginBottom: 14 }}>Alertas de inventario por sede</h4>
+            <ResponsiveContainer width="100%" height={chartHeight}>
+              {usarLayoutHorizontal ? (
+                <BarChart
+                  data={stockData}
+                  layout="vertical"
+                  margin={{ left: 10, right: 20, top: 4, bottom: 4 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 12, fill: 'var(--color-text-secondary)' }} allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12, fill: 'var(--color-text-secondary)' }} />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="Sin stock"  fill="#DC2626" radius={[0,4,4,0]} />
+                  <Bar dataKey="Stock bajo" fill="#F97316" radius={[0,4,4,0]} />
+                </BarChart>
+              ) : (
+                <BarChart data={stockData} margin={{ left: -10, right: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--color-text-secondary)' }} />
+                  <YAxis tick={{ fontSize: 12, fill: 'var(--color-text-secondary)' }} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="Sin stock"  fill="#DC2626" radius={[4,4,0,0]} />
+                  <Bar dataKey="Stock bajo" fill="#F97316" radius={[4,4,0,0]} />
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+
+            {/* Detalle por sede / enlace a inventario */}
+            {sedes.some(s => s.out_of_stock_count > 0 || s.low_stock_count > 0) && (
+              <div style={{
+                marginTop: 14,
+                paddingTop: 12,
+                borderTop: '1px solid var(--color-border)',
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {sedes
+                    .filter(s => s.out_of_stock_count > 0 || s.low_stock_count > 0)
+                    .map(s => (
+                      <div key={s.id} style={{
+                        fontSize: 12,
+                        padding: '4px 10px',
+                        background: 'var(--color-error-bg)',
+                        border: '1px solid var(--color-error)',
+                        borderRadius: 6,
+                        color: 'var(--color-error)',
+                        fontWeight: 600,
+                      }}>
+                        {s.name}:{' '}
+                        {s.out_of_stock_count > 0 && `${s.out_of_stock_count} sin stock`}
+                        {s.out_of_stock_count > 0 && s.low_stock_count > 0 && ', '}
+                        {s.low_stock_count > 0 && (
+                          <span style={{ color: 'var(--color-warning)' }}>
+                            {s.low_stock_count} bajo
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                </div>
+                <span style={{
+                  fontSize: 12,
+                  color: 'var(--color-primary)',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                }}>
+                  Ver detalle en Inventario →
+                </span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
     </div>
   );
