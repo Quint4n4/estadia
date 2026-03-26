@@ -13,14 +13,18 @@ export interface CartItem {
   quantity:      number;
   subtotal:      number;   // unit_price * quantity
   stock_disponible: number; // stock at the cashier's sede
+  tipo?: 'PRODUCTO' | 'SERVICIO';
+  catalogo_servicio_id?: number;
 }
 
 // ── API payloads ──────────────────────────────────────────────────────────────
 
 export interface VentaItemPayload {
-  producto:   number;
-  quantity:   number;
-  unit_price: number;
+  producto:            number | null;
+  catalogo_servicio:   number | null;
+  tipo:                'PRODUCTO' | 'SERVICIO';
+  quantity:            number;
+  unit_price:          number;
 }
 
 export interface VentaPayload {

@@ -19,3 +19,7 @@ python-decouple==3.8
 
 # Image processing (ImageField)
 Pillow==10.4.0
+
+# Cloudinary — almacenamiento de imágenes en la nube
+cloudinary==1.41.0
+django-cloudinary-storage==0.3.0

@@ -6,8 +6,11 @@
 
 export type ServicioStatus =
   | 'RECIBIDO'
+  | 'EN_DIAGNOSTICO'
   | 'EN_PROCESO'
   | 'COTIZACION_EXTRA'
+  | 'LISTA_PARA_ENTREGAR'
+  | 'CANCELADO'
   | 'LISTO'
   | 'ENTREGADO';
 
@@ -26,6 +29,7 @@ export interface MotoCliente {
   marca: string;
   modelo: string;
   anio: number;
+  numero_serie: string;
   placa: string;
   color: string;
   notas: string;
@@ -38,6 +42,7 @@ export interface MotoClienteMinimal {
   marca: string;
   modelo: string;
   anio: number;
+  numero_serie: string;
   placa: string;
 }
 
@@ -97,19 +102,31 @@ export interface ServicioMotoList {
   tiene_extra_pendiente: boolean;
   fecha_recepcion: string;
   fecha_entrega_estimada: string | null;
+  archivado?:            boolean;
+  fecha_archivado?:      string | null;
+  archivado_por_nombre?: string | null;
+  diagnostico_listo?:    boolean;
 }
 
 // ── Servicio (detalle completo) ───────────────────────────────────────────────
 
 export interface ServicioMotoDetail extends ServicioMotoList {
   cliente: number | null;
+  cliente_email: string;
   moto: MotoClienteMinimal;
+  es_reparacion: boolean;
   asignado_por_nombre: string | null;
   metodo_pago: MetodoPago | null;
+  monto_pagado: string | null;
+  cambio: string | null;
   fecha_inicio: string | null;
   fecha_listo: string | null;
   fecha_entrega: string | null;
   notas_internas: string;
+  diagnostico_mecanico: string;
+  refacciones_requeridas: string;
+  checklist_recepcion: string[];
+  imagenes: ServicioImagen[];
   items: ServicioItem[];
   solicitudes_extra: SolicitudRefaccionExtra[];
 }
@@ -120,7 +137,8 @@ export interface MotoClienteInput {
   marca: string;
   modelo: string;
   anio: number;
-  placa: string;
+  numero_serie: string;
+  placa?: string;
   color?: string;
   notas?: string;
 }
@@ -133,20 +151,30 @@ export interface ServicioItemInput {
   precio_unitario: string;
 }
 
+export interface ServicioImagen {
+  id: number;
+  imagen_url: string;
+  descripcion: string;
+  created_at: string;
+}
+
 export interface ServicioCreatePayload {
   sede?: number;
   cliente?: number | null;
   // Moto: puede ser ID existente o datos para crear nueva
-  moto_id?: number | null;
+  moto?: number | null;
   moto_nueva?: MotoClienteInput;
-  descripcion_problema: string;
-  fecha_entrega_estimada?: string | null;
-  notas_internas?: string;
+  descripcion: string;
+  es_reparacion?: boolean;
   mano_de_obra: string;
   items?: ServicioItemInput[];
-  // Pago inmediato opcional
-  pagar_ahora?: boolean;
+  checklist_recepcion?: string[];
+  fecha_entrega_estimada?: string | null;
+  notas_internas?: string;
+  // Pago
+  pago_status?: 'PENDIENTE_PAGO' | 'PAGADO';
   metodo_pago?: MetodoPago;
+  monto_pagado?: string | null;
 }
 
 export interface ServicioUpdatePayload {
@@ -164,6 +192,7 @@ export interface AsignarMecanicoPayload {
 
 export interface EntregarServicioPayload {
   metodo_pago: MetodoPago;
+  monto_pagado: number;
 }
 
 export interface SolicitudCreatePayload {
@@ -189,4 +218,101 @@ export interface TallerApiResponse<T> {
   success: boolean;
   message?: string;
   data: T;
+}
+
+export interface HistorialParams {
+  fecha_desde?: string;   // YYYY-MM-DD
+  fecha_hasta?: string;   // YYYY-MM-DD
+  status?:      string;
+  search?:      string;
+  page?:        number;
+  page_size?:   number;
+  sede_id?:     number;
+}
+
+export interface HistorialResponse {
+  servicios:  ServicioMotoList[];
+  pagination: {
+    total:       number;
+    page:        number;
+    page_size:   number;
+    total_pages: number;
+  };
+}
+
+// ── Reporte de Taller (EncargadoPanel) ────────────────────────────────────────
+
+export interface ReporteTallerParams {
+  fecha_desde: string;   // YYYY-MM-DD
+  fecha_hasta: string;   // YYYY-MM-DD
+  sede_id?:    number;
+}
+
+export interface ReporteTallerKpis {
+  total_ordenes:          number;
+  total_entregadas:       number;
+  total_canceladas:       number;
+  total_activas:          number;
+  ingresos_totales:       string;   // Decimal como string
+  ticket_promedio:        string;   // Decimal como string
+  tiempo_promedio_horas:  number;
+  tasa_cancelacion_pct:   number;
+}
+
+export interface ReportePeriodoItem {
+  label:    string;
+  ingresos: string;   // Decimal como string
+  ordenes:  number;
+}
+
+export interface ReporteMecanicoItem {
+  mecanico_id:            number;
+  mecanico_nombre:        string;
+  asignadas:              number;
+  entregadas:             number;
+  pct_completadas:        number;
+  ingreso_generado:       string;   // Decimal como string
+  tiempo_promedio_horas:  number;
+}
+
+export interface ReporteTipoItem {
+  conteo:   number;
+  ingresos: string;   // Decimal como string
+}
+
+export interface ReporteMetodoPagoItem {
+  metodo: string;
+  conteo: number;
+  total:  string;   // Decimal como string
+}
+
+export interface ReporteTardiaItem {
+  folio:             string;
+  mecanico_nombre:   string;
+  fecha_estimada:    string;
+  fecha_entrega:     string;
+  dias_retraso:      number;
+}
+
+export interface ReporteActivoStatusItem {
+  status:         string;
+  status_display: string;
+  conteo:         number;
+}
+
+export interface ReporteTallerData {
+  periodo: {
+    desde: string;
+    hasta: string;
+  };
+  kpis:                  ReporteTallerKpis;
+  ingresos_por_periodo:  ReportePeriodoItem[];
+  por_mecanico:          ReporteMecanicoItem[];
+  por_tipo: {
+    reparacion:    ReporteTipoItem;
+    mantenimiento: ReporteTipoItem;
+  };
+  por_metodo_pago:       ReporteMetodoPagoItem[];
+  ordenes_tardias:       ReporteTardiaItem[];
+  activas_por_status:    ReporteActivoStatusItem[];
 }

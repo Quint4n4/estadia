@@ -758,6 +758,27 @@ class UserListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        user = request.user
+
+        # JEFE_MECANICO puede listar únicamente mecánicos de su sede (solo lectura)
+        if user.is_jefe_mecanico:
+            sede_id_filter = request.query_params.get('sede_id', '').strip()
+            is_active = request.query_params.get('is_active', '').strip()
+            qs = CustomUser.objects.select_related('sede').filter(
+                role=CustomUser.Role.MECANICO,
+                sede=user.sede,
+            ).order_by('first_name', 'last_name')
+            if is_active in ('true', 'false'):
+                qs = qs.filter(is_active=(is_active == 'true'))
+            total = qs.count()
+            return Response({
+                'success': True,
+                'data': {
+                    'users': UserSerializer(qs, many=True).data,
+                    'pagination': {'total': total, 'page': 1, 'page_size': total, 'total_pages': 1},
+                },
+            })
+
         if not _can_manage_users(request.user):
             return Response({
                 'success': False,

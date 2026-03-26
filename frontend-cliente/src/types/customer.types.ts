@@ -51,6 +51,38 @@ export interface MisComprasResponse {
   total_pages: number;
 }
 
+// ── Módulo Taller — Seguimiento público ───────────────────────────────────────
+
+export interface TimelineStep {
+  status:     string;
+  label:      string;
+  fecha:      string | null;
+  completado: boolean;
+  activo:     boolean;
+}
+
+export interface SeguimientoData {
+  folio:                   string;
+  moto_display:            string;
+  sede_nombre:             string;
+  status:                  string;
+  status_display:          string;
+  pago_status:             string;
+  pago_status_display:     string;
+  descripcion:             string;
+  fecha_recepcion:         string;
+  fecha_entrega_estimada:  string | null;
+  fecha_inicio:            string | null;
+  fecha_listo:             string | null;
+  fecha_entrega:           string | null;
+  tiene_extra_pendiente:   boolean;
+  diagnostico_listo?:      boolean;
+  mano_de_obra:            string;
+  total_refacciones:       string;
+  total:                   string;
+  timeline:                TimelineStep[];
+}
+
 // ── Módulo Taller ─────────────────────────────────────────────────────────────
 
 export type ServicioStatus =

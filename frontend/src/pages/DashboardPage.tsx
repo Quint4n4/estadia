@@ -44,12 +44,14 @@ import ConfigFiscalView from '../components/admin/billing/ConfigFiscalView';
 import ReportesCajaView from '../components/encargado/ReportesCajaView';
 import LockedAccountsBanner from '../components/admin/LockedAccountsBanner';
 import SecurityView from '../components/admin/SecurityView';
+import CatalogoServiciosList from '../components/admin/servicios/CatalogoServiciosList';
 import '../styles/DashboardPage.css';
 
 type Section =
   | 'dashboard' | 'users' | 'sedes' | 'security'
   | 'products' | 'categories' | 'subcategories' | 'fabricantes' | 'motos' | 'audits'
-  | 'reportes' | 'reportes-caja' | 'config-fiscal';
+  | 'reportes' | 'reportes-caja' | 'config-fiscal'
+  | 'catalogo-servicios';
 
 const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; group?: string }[] = [
   { id: 'dashboard',     label: 'Dashboard',      icon: <LayoutDashboard size={18} /> },
@@ -62,6 +64,7 @@ const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; group?: st
   { id: 'fabricantes',   label: 'Fabricantes',     icon: <Factory size={18} />,      group: 'Inventario' },
   { id: 'motos',         label: 'Catálogo Motos',  icon: <Bike size={18} />,         group: 'Inventario' },
   { id: 'audits',        label: 'Auditorías',      icon: <ClipboardList size={18} />,group: 'Inventario' },
+  { id: 'catalogo-servicios', label: 'Catálogo de Servicios', icon: <Wrench size={18} />, group: 'Servicios' },
   { id: 'reportes',      label: 'Reportes',        icon: <TrendingUp size={18} />,   group: 'Reportes' },
   { id: 'reportes-caja',  label: 'Reportes Caja',   icon: <FileText size={18} />,   group: 'Reportes' },
   { id: 'config-fiscal', label: 'Config. Tickets', icon: <Receipt size={18} />,      group: 'Reportes' },
@@ -333,6 +336,7 @@ const DashboardPage: React.FC = () => {
           {activeSection === 'fabricantes'   && <FabricantesList />}
           {activeSection === 'motos'         && <MotoCatalogView />}
           {activeSection === 'audits'        && <AuditView />}
+          {activeSection === 'catalogo-servicios' && <CatalogoServiciosList />}
           {activeSection === 'reportes'      && <ReportesView sedes={sedes} />}
           {activeSection === 'reportes-caja'  && <ReportesCajaView showSede />}
           {activeSection === 'config-fiscal' && <ConfigFiscalView sedes={sedes} />}

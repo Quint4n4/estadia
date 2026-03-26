@@ -73,14 +73,34 @@ class Venta(models.Model):
 
 
 class VentaItem(models.Model):
-    """One line of a sale: producto × quantity at a fixed unit_price."""
+    """One line of a sale: producto or catalogo_servicio × quantity at a fixed unit_price."""
+
+    class Tipo(models.TextChoices):
+        PRODUCTO = 'PRODUCTO', 'Producto'
+        SERVICIO = 'SERVICIO', 'Servicio de catálogo'
+
     venta      = models.ForeignKey(
         Venta, on_delete=models.CASCADE,
         related_name='items', verbose_name='Venta'
     )
+    tipo       = models.CharField(
+        max_length=10,
+        choices=Tipo.choices,
+        default=Tipo.PRODUCTO,
+        verbose_name='Tipo de ítem',
+    )
     producto   = models.ForeignKey(
         'inventory.Producto', on_delete=models.PROTECT,
-        related_name='venta_items', verbose_name='Producto'
+        related_name='venta_items', verbose_name='Producto',
+        null=True, blank=True,
+    )
+    catalogo_servicio = models.ForeignKey(
+        'catalogo_servicios.CatalogoServicio',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='ventas_items',
+        verbose_name='Servicio del catálogo',
     )
     quantity   = models.PositiveIntegerField(verbose_name='Cantidad')
     unit_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='Precio unitario')
@@ -92,7 +112,10 @@ class VentaItem(models.Model):
         verbose_name_plural = 'Ítems de Venta'
 
     def __str__(self):
-        return f'[Venta #{self.venta_id}] {self.producto.sku} ×{self.quantity}'
+        if self.tipo == self.Tipo.SERVICIO and self.catalogo_servicio:
+            return f'[Venta #{self.venta_id}] SERVICIO:{self.catalogo_servicio.nombre} ×{self.quantity}'
+        label = self.producto.sku if self.producto else '(sin producto)'
+        return f'[Venta #{self.venta_id}] {label} ×{self.quantity}'
 
 
 # ─── Apertura de Caja ─────────────────────────────────────────────────────────

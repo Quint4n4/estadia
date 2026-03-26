@@ -155,7 +155,9 @@ class VentaCancelarView(APIView):
     @transaction.atomic
     def patch(self, request, pk):
         try:
-            venta = Venta.objects.select_for_update().select_related('sede').prefetch_related('items__producto').get(pk=pk)
+            venta = Venta.objects.select_for_update().select_related('sede').prefetch_related(
+                'items__producto', 'items__catalogo_servicio'
+            ).get(pk=pk)
         except Venta.DoesNotExist:
             return _not_found('Venta')
 
@@ -168,25 +170,48 @@ class VentaCancelarView(APIView):
         venta.status = Venta.Status.CANCELADA
         venta.save(update_fields=['status'])
 
-        # Build producto_id → quantity map using prefetched items (0 extra queries)
+        from .models import VentaItem
+        from catalogo_servicios.models import CatalogoServicioRefaccion
+
+        # ── Restore stock for PRODUCTO items ──────────────────────────────────
+        # Build producto_id → quantity map for regular product items only
         qty_map: dict = {}
         for item in venta.items.all():
-            qty_map[item.producto_id] = qty_map.get(item.producto_id, 0) + item.quantity
+            if item.tipo == VentaItem.Tipo.PRODUCTO and item.producto_id is not None:
+                qty_map[item.producto_id] = qty_map.get(item.producto_id, 0) + item.quantity
 
-        # 1 query: lock all affected stock rows at once
-        stocks = list(
-            Stock.objects.select_for_update().filter(
-                producto_id__in=list(qty_map.keys()),
-                sede=venta.sede,
+        if qty_map:
+            # 1 query: lock all affected stock rows at once
+            stocks = list(
+                Stock.objects.select_for_update().filter(
+                    producto_id__in=list(qty_map.keys()),
+                    sede=venta.sede,
+                )
             )
-        )
 
-        # Update quantities in Python using F() — no additional queries
-        for stock in stocks:
-            stock.quantity = F('quantity') + qty_map[stock.producto_id]
+            # Update quantities in Python using F() — no additional queries
+            for stock in stocks:
+                stock.quantity = F('quantity') + qty_map[stock.producto_id]
 
-        # 1 query: persist all updates
-        Stock.objects.bulk_update(stocks, ['quantity'])
+            # 1 query: persist all updates
+            Stock.objects.bulk_update(stocks, ['quantity'])
+
+        # ── Restore stock for SERVICIO items ──────────────────────────────────
+        for item in venta.items.all():
+            if item.tipo == VentaItem.Tipo.SERVICIO and item.catalogo_servicio_id is not None:
+                refacciones = CatalogoServicioRefaccion.objects.filter(
+                    servicio_id=item.catalogo_servicio_id,
+                    es_opcional=False,
+                ).select_related('producto')
+
+                for ref in refacciones:
+                    stock_obj = Stock.objects.select_for_update().filter(
+                        producto=ref.producto,
+                        sede=venta.sede,
+                    ).first()
+                    if stock_obj:
+                        stock_obj.quantity = F('quantity') + (ref.cantidad * item.quantity)
+                        stock_obj.save(update_fields=['quantity'])
 
         return Response({
             'success': True,

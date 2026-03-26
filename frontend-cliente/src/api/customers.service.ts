@@ -1,5 +1,12 @@
+import axios from 'axios';
 import apiClient from './axios.config';
-import type { ClienteProfile, AuthTokens, MisComprasResponse, ServicioMotoCliente } from '../types/customer.types';
+import type { ClienteProfile, AuthTokens, MisComprasResponse, ServicioMotoCliente, SeguimientoData } from '../types/customer.types';
+
+// Cliente público sin headers de auth (para endpoints que no requieren autenticación)
+const publicClient = axios.create({
+  baseURL: '/api',
+  headers: { 'Content-Type': 'application/json' },
+});
 
 interface RegisterPayload {
   first_name: string;
@@ -61,5 +68,12 @@ export const customersService = {
   async getMiServicio(id: number): Promise<ServicioMotoCliente> {
     const r = await apiClient.get(`/taller/mis-servicios/${id}/`);
     return r.data.data;
+  },
+
+  // ── Seguimiento público (sin auth) ──────────────────────────────────────────
+
+  async getSeguimiento(token: string): Promise<{ success: boolean; data: SeguimientoData }> {
+    const r = await publicClient.get(`/taller/seguimiento/${token}/`);
+    return r.data;
   },
 };

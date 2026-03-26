@@ -1547,7 +1547,7 @@
 
 .cashier-main-body {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
   padding: 16px 20px;
   display: flex;
   flex-direction: column;

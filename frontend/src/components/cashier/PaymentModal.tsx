@@ -60,9 +60,11 @@ const PaymentModal: React.FC<Props> = ({
       const payload = {
         sede:         sedeId,
         items:        items.map(i => ({
-          producto:   i.producto_id,
-          quantity:   i.quantity,
-          unit_price: i.unit_price,
+          producto:           i.tipo === 'SERVICIO' ? null : i.producto_id,
+          catalogo_servicio:  i.tipo === 'SERVICIO' ? (i.catalogo_servicio_id ?? null) : null,
+          tipo:               i.tipo ?? 'PRODUCTO',
+          quantity:           i.quantity,
+          unit_price:         i.unit_price,
         })),
         descuento,
         metodo_pago:  metodoPago,
@@ -160,7 +162,8 @@ const PaymentModal: React.FC<Props> = ({
               {/* Items editables */}
               <div className="payment-items-list">
                 {items.map(item => (
-                  <div key={item.producto_id} className="payment-item-row"
+                  <div key={item.tipo === 'SERVICIO' ? `svc-${item.catalogo_servicio_id}` : `prd-${item.producto_id}`}
+                    className="payment-item-row"
                     style={{ alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
 
                     {/* Nombre del producto */}
@@ -233,6 +236,25 @@ const PaymentModal: React.FC<Props> = ({
                   </div>
                 ))}
               </div>
+
+              {/* Servicios incluidos (solo si hay items de tipo SERVICIO) */}
+              {items.some(i => i.tipo === 'SERVICIO') && (
+                <div style={{
+                  marginTop: 10, marginBottom: 4,
+                  padding: '8px 12px',
+                  background: '#f0fff4',
+                  border: '1px solid #9ae6b4',
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}>
+                  <p style={{ fontWeight: 700, color: '#276749', marginBottom: 4 }}>Servicios incluidos:</p>
+                  {items.filter(i => i.tipo === 'SERVICIO').map(i => (
+                    <p key={`svc-label-${i.catalogo_servicio_id}`} style={{ color: '#276749', lineHeight: 1.6 }}>
+                      • {i.producto_name}
+                    </p>
+                  ))}
+                </div>
+              )}
 
               <hr className="payment-divider" />
 
