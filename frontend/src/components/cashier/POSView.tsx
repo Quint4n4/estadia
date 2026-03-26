@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Bike, X } from 'lucide-react';
+import { Search, Bike, X, Wrench, RefreshCw } from 'lucide-react';
 import type { CartItem, MetodoPago } from '../../types/sales.types';
 import type { Producto, MarcaMoto, ModeloMoto, Categoria } from '../../types/inventory.types';
+import type { DisponibilidadServicioItem } from '../../types/catalogo-servicios.types';
 import { inventoryService } from '../../api/inventory.service';
+import { catalogoServiciosService } from '../../api/catalogo-servicios.service';
 import PaymentModal from './PaymentModal';
 import PedidoBodegaPanel from './PedidoBodegaPanel';
 
@@ -310,15 +312,131 @@ const MotoSearchMode: React.FC<{ sedeId: number; cart: CartItem[]; onAdd: (p: Pr
   );
 };
 
+// ── Services tab ──────────────────────────────────────────────────────────────
+
+const ServiciosTab: React.FC<{ sedeId: number; cart: CartItem[]; onAdd: (s: DisponibilidadServicioItem) => void }> = ({ sedeId, cart, onAdd }) => {
+  const [servicios,  setServicios]  = useState<DisponibilidadServicioItem[]>([]);
+  const [cargando,   setCargando]   = useState(false);
+  const [error,      setError]      = useState('');
+
+  const cargarServicios = useCallback(async () => {
+    setCargando(true);
+    setError('');
+    try {
+      const data = await catalogoServiciosService.getDisponibilidadTodos(sedeId);
+      setServicios(data);
+    } catch {
+      setError('No se pudieron cargar los servicios.');
+    } finally {
+      setCargando(false);
+    }
+  }, [sedeId]);
+
+  useEffect(() => { cargarServicios(); }, [cargarServicios]);
+
+  // Group by categoria
+  const grupos = servicios.reduce<Record<string, DisponibilidadServicioItem[]>>((acc, s) => {
+    const cat = s.categoria || 'Sin categoría';
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(s);
+    return acc;
+  }, {});
+
+  if (cargando) return <p className="pos-search-hint">Cargando servicios…</p>;
+  if (error)    return <p className="pos-search-hint" style={{ color: 'var(--color-danger, #e53e3e)' }}>{error}</p>;
+  if (servicios.length === 0) return <p className="pos-search-hint">No hay servicios disponibles.</p>;
+
+  return (
+    <div>
+      {Object.entries(grupos).map(([categoria, items]) => (
+        <div key={categoria} style={{ marginBottom: 20 }}>
+          <p style={{
+            fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+            letterSpacing: '0.06em', color: 'var(--color-text-secondary)',
+            marginBottom: 8, paddingBottom: 4,
+            borderBottom: '1px solid var(--color-border)',
+          }}>
+            {categoria}
+          </p>
+          <div className="pos-product-grid">
+            {items.map(s => {
+              const precio     = parseFloat(String(s.precio_base));
+              const duracion   = s.duracion_estimada_minutos;
+              const inCart     = cart.find(c => c.catalogo_servicio_id === s.id && c.tipo === 'SERVICIO');
+              const sinStock   = !s.disponible;
+
+              return (
+                <div
+                  key={s.id}
+                  className={`pos-product-card${sinStock ? ' pos-product-card--disabled' : ''}`}
+                  onClick={() => !sinStock && onAdd(s)}
+                  title={sinStock ? 'Sin stock de refacciones' : 'Agregar servicio al carrito'}
+                >
+                  <div className="pos-product-img-placeholder">
+                    <Wrench size={28} strokeWidth={1.5} />
+                  </div>
+                  <p className="pos-product-name">{s.nombre}</p>
+                  <p className="pos-product-price">{fmt(precio)}</p>
+                  <p className="pos-product-stock">
+                    {duracion} min
+                    {inCart ? ` (${inCart.quantity} en carrito)` : ''}
+                  </p>
+                  <span style={{
+                    display: 'inline-block', marginTop: 4,
+                    padding: '2px 7px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+                    background: sinStock ? '#fffbeb' : '#f0fff4',
+                    color:      sinStock ? '#b45309'  : '#276749',
+                    border:     `1px solid ${sinStock ? '#f6ad55' : '#9ae6b4'}`,
+                  }}>
+                    {sinStock ? 'Sin stock' : 'Disponible'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // ── Main POSView ──────────────────────────────────────────────────────────────
 
 type SearchMode = 'text' | 'moto';
 
 const POSView: React.FC<Props> = ({ sedeId }) => {
   const [searchMode, setSearchMode] = useState<SearchMode>('text');
+  const [tabActivo,  setTabActivo]  = useState<'productos' | 'servicios'>('productos');
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Cart state
   const [cart, setCart] = useState<CartItem[]>([]);
+
+  const addServiceToCart = (servicio: DisponibilidadServicioItem) => {
+    if (!servicio.disponible) return;
+    setCart(prev => {
+      const existing = prev.find(i => i.tipo === 'SERVICIO' && i.catalogo_servicio_id === servicio.id);
+      if (existing) {
+        return prev.map(i =>
+          (i.tipo === 'SERVICIO' && i.catalogo_servicio_id === servicio.id)
+            ? { ...i, quantity: i.quantity + 1, subtotal: (i.quantity + 1) * i.unit_price }
+            : i
+        );
+      }
+      const unit_price = parseFloat(String(servicio.precio_base));
+      return [...prev, {
+        producto_id:         0,
+        producto_sku:        '',
+        producto_name:       servicio.nombre,
+        unit_price,
+        quantity:            1,
+        subtotal:            unit_price,
+        stock_disponible:    999,
+        tipo:                'SERVICIO' as const,
+        catalogo_servicio_id: servicio.id,
+      }];
+    });
+  };
 
   const addToCart = (producto: Producto) => {
     const stockEntry = producto.stock_items?.find(s => s.sede_id === sedeId);
@@ -348,10 +466,17 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
     });
   };
 
-  const changeQty = (producto_id: number, delta: number) => {
+  // Unique cart key: for services use a negative/namespaced id to avoid collisions
+  const cartItemKey = (item: CartItem) =>
+    item.tipo === 'SERVICIO' ? `svc-${item.catalogo_servicio_id}` : `prd-${item.producto_id}`;
+
+  const changeQty = (item: CartItem, delta: number) => {
     setCart(prev => prev
       .map(i => {
-        if (i.producto_id !== producto_id) return i;
+        const match = item.tipo === 'SERVICIO'
+          ? i.tipo === 'SERVICIO' && i.catalogo_servicio_id === item.catalogo_servicio_id
+          : i.tipo !== 'SERVICIO' && i.producto_id === item.producto_id;
+        if (!match) return i;
         const newQty = i.quantity + delta;
         if (newQty <= 0) return null;
         if (newQty > i.stock_disponible) return i;
@@ -361,8 +486,10 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
     );
   };
 
-  const removeItem    = (id: number) => setCart(prev => prev.filter(i => i.producto_id !== id));
-  const clearCart     = ()           => setCart([]);
+  const removeItem = (item: CartItem) => {
+    setCart(prev => prev.filter(i => cartItemKey(i) !== cartItemKey(item)));
+  };
+  const clearCart = () => setCart([]);
 
   // Totals
   const [descuentoInput, setDescuentoInput] = useState(0);
@@ -391,23 +518,23 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
       {/* LEFT: search panel */}
       <div className="pos-search-panel">
 
-        {/* Mode tabs */}
+        {/* Top-level tabs: Productos / Servicios */}
         <div style={{ display: 'flex', marginBottom: 14, borderBottom: '2px solid var(--color-border)' }}>
           {([
-            { id: 'text', icon: <Search size={14} />, label: 'Búsqueda rápida' },
-            { id: 'moto', icon: <Bike   size={14} />, label: 'Buscar por moto' },
-          ] as { id: SearchMode; icon: React.ReactNode; label: string }[]).map(tab => (
+            { id: 'productos' as const, icon: <Search  size={14} />, label: 'Productos' },
+            { id: 'servicios' as const, icon: <Wrench  size={14} />, label: 'Servicios' },
+          ]).map(tab => (
             <button
               key={tab.id}
-              onClick={() => setSearchMode(tab.id)}
+              onClick={() => setTabActivo(tab.id)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '8px 16px', fontSize: 13, fontWeight: 600,
                 background: 'none', border: 'none', cursor: 'pointer',
-                borderBottom: searchMode === tab.id
+                borderBottom: tabActivo === tab.id
                   ? '2px solid var(--color-primary)'
                   : '2px solid transparent',
-                color: searchMode === tab.id
+                color: tabActivo === tab.id
                   ? 'var(--color-primary)'
                   : 'var(--color-text-secondary)',
                 marginBottom: -2,
@@ -419,10 +546,62 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
           ))}
         </div>
 
-        {searchMode === 'text' && <TextSearchMode sedeId={sedeId} cart={cart} onAdd={addToCart} />}
-        {searchMode === 'moto' && <MotoSearchMode sedeId={sedeId} cart={cart} onAdd={addToCart} />}
+        {/* Tab: Productos */}
+        {tabActivo === 'productos' && (
+          <>
+            {/* Search mode sub-tabs */}
+            <div style={{ display: 'flex', marginBottom: 12, gap: 4 }}>
+              {([
+                { id: 'text' as SearchMode, icon: <Search size={13} />, label: 'Búsqueda rápida' },
+                { id: 'moto' as SearchMode, icon: <Bike   size={13} />, label: 'Buscar por moto' },
+              ]).map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setSearchMode(tab.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                    background: searchMode === tab.id ? 'var(--color-primary)' : 'var(--color-bg-elevated)',
+                    border: `1px solid ${searchMode === tab.id ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                    borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                    color: searchMode === tab.id ? '#fff' : 'var(--color-text-secondary)',
+                  }}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-        <PedidoBodegaPanel sedeId={sedeId} onAgregarAlCarrito={() => {}} />
+            {searchMode === 'text' && <TextSearchMode sedeId={sedeId} cart={cart} onAdd={addToCart} />}
+            {searchMode === 'moto' && <MotoSearchMode sedeId={sedeId} cart={cart} onAdd={addToCart} />}
+
+            <PedidoBodegaPanel sedeId={sedeId} onAgregarAlCarrito={() => {}} />
+          </>
+        )}
+
+        {/* Tab: Servicios */}
+        {tabActivo === 'servicios' && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+              <button
+                onClick={() => setRefreshKey(k => k + 1)}
+                title="Refrescar disponibilidad"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '5px 10px', fontSize: 12, fontWeight: 600,
+                  background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                  color: 'var(--color-text-secondary)',
+                }}
+              >
+                <RefreshCw size={13} />
+                Refrescar
+              </button>
+            </div>
+            <ServiciosTab key={refreshKey} sedeId={sedeId} cart={cart} onAdd={addServiceToCart} />
+          </>
+        )}
       </div>
 
       {/* RIGHT: cart panel */}
@@ -449,23 +628,28 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
           <>
             <div className="pos-cart-items">
               {cart.map(item => (
-                <div key={item.producto_id} className="pos-cart-item">
+                <div key={cartItemKey(item)} className="pos-cart-item">
                   <div className="pos-cart-item-info">
-                    <p className="pos-cart-item-name">{item.producto_name}</p>
+                    <p className="pos-cart-item-name">
+                      {item.tipo === 'SERVICIO' && (
+                        <Wrench size={12} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle', opacity: 0.6 }} />
+                      )}
+                      {item.producto_name}
+                    </p>
                     <p className="pos-cart-item-price">{fmt(item.unit_price)} c/u</p>
                   </div>
                   <div className="pos-qty-ctrl">
-                    <button className="pos-qty-btn" onClick={() => changeQty(item.producto_id, -1)}>−</button>
+                    <button className="pos-qty-btn" onClick={() => changeQty(item, -1)}>−</button>
                     <span className="pos-qty-value">{item.quantity}</span>
                     <button className="pos-qty-btn"
-                      onClick={() => changeQty(item.producto_id, +1)}
-                      disabled={item.quantity >= item.stock_disponible}
-                      title={item.quantity >= item.stock_disponible ? 'Stock máximo alcanzado' : 'Aumentar cantidad'}
-                      aria-label={item.quantity >= item.stock_disponible ? 'Stock máximo alcanzado' : 'Aumentar cantidad'}
+                      onClick={() => changeQty(item, +1)}
+                      disabled={item.tipo !== 'SERVICIO' && item.quantity >= item.stock_disponible}
+                      title={item.tipo !== 'SERVICIO' && item.quantity >= item.stock_disponible ? 'Stock máximo alcanzado' : 'Aumentar cantidad'}
+                      aria-label={item.tipo !== 'SERVICIO' && item.quantity >= item.stock_disponible ? 'Stock máximo alcanzado' : 'Aumentar cantidad'}
                     >+</button>
                   </div>
                   <span className="pos-cart-item-subtotal">{fmt(item.subtotal)}</span>
-                  <button className="pos-remove-btn" onClick={() => removeItem(item.producto_id)} title="Quitar">
+                  <button className="pos-remove-btn" onClick={() => removeItem(item)} title="Quitar">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <polyline points="3 6 5 6 21 6" />
                       <path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" />

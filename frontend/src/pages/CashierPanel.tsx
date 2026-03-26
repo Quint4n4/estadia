@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { salesService } from '../api/sales.service';
+import { tallerService } from '../api/taller.service';
 import POSView from '../components/cashier/POSView';
 import SalesHistoryView from '../components/cashier/SalesHistoryView';
 import CajaClosedScreen from '../components/cashier/CajaClosedScreen';
 import ServiciosView from '../components/taller/ServiciosView';
+import HistorialServiciosView from '../components/taller/HistorialServiciosView';
 import '../styles/DashboardPage.css';
 
-type Section    = 'pos' | 'history' | 'servicios';
+type Section    = 'pos' | 'history' | 'servicios' | 'historial_taller';
 type CajaStatus = 'loading' | 'cerrada' | 'abierta';
 
 const CashierPanel: React.FC = () => {
@@ -17,6 +19,10 @@ const CashierPanel: React.FC = () => {
   const [section,    setSection]    = useState<Section>('pos');
   const [cajaStatus, setCajaStatus] = useState<CajaStatus>('loading');
   const [aperturaId, setAperturaId] = useState<number | null>(null);
+
+  const [showArchivarModal, setShowArchivarModal] = useState(false);
+  const [archivando,        setArchivando]        = useState(false);
+  const [archivarMsg,       setArchivarMsg]        = useState('');
 
   const sedeId   = user?.sede?.id ?? 0;
   const cajeroId = user?.id ?? 0;
@@ -57,6 +63,27 @@ const CashierPanel: React.FC = () => {
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleArchivarOrdenes = async () => {
+    setArchivando(true);
+    setArchivarMsg('');
+    try {
+      const res = await tallerService.archivarOrdenes(sedeId || undefined);
+      const n = res.data?.archivadas ?? 0;
+      const msg = n > 0
+        ? `✅ ${n} orden(es) entregada(s)/cancelada(s) archivada(s).`
+        : '✅ No había órdenes entregadas o canceladas para archivar.';
+      setArchivarMsg(msg);
+      setTimeout(() => {
+        setShowArchivarModal(false);
+        setArchivarMsg('');
+      }, 1800);
+    } catch {
+      setArchivarMsg('❌ Error al archivar. Intenta de nuevo.');
+    } finally {
+      setArchivando(false);
+    }
   };
 
   return (
@@ -116,6 +143,20 @@ const CashierPanel: React.FC = () => {
           Taller / Servicios
         </button>
 
+        <button
+          className={`cashier-nav-item${section === 'historial_taller' ? ' cashier-nav-item--active' : ''}`}
+          onClick={() => setSection('historial_taller')}
+          disabled={cajaStatus !== 'abierta'}
+        >
+          {/* ícono de caja/archivo */}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="21 8 21 21 3 21 3 8" />
+            <rect x="1" y="3" width="22" height="5" />
+            <line x1="10" y1="12" x2="14" y2="12" />
+          </svg>
+          Historial Taller
+        </button>
+
         {/* User info + actions */}
         <div className="cashier-sidebar-footer">
           <div className="cashier-user-info">
@@ -125,6 +166,22 @@ const CashierPanel: React.FC = () => {
               <p className="cashier-sede-badge">{user?.sede?.name ?? '—'}</p>
             </div>
           </div>
+          {cajaStatus === 'abierta' && (
+            <button
+              onClick={() => { setArchivarMsg(''); setShowArchivarModal(true); }}
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #d97706',
+                background: '#fffbeb', color: '#92400e', fontWeight: 600, fontSize: 13,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" />
+                <line x1="10" y1="12" x2="14" y2="12" />
+              </svg>
+              Archivar órdenes del día
+            </button>
+          )}
           {cajaStatus === 'abierta' && (
             <button
               onClick={handleCerrarCaja}
@@ -160,8 +217,9 @@ const CashierPanel: React.FC = () => {
         <div className="cashier-main-header">
           {cajaStatus !== 'abierta'
             ? 'Caja'
-            : section === 'pos'       ? 'Punto de Venta'
-            : section === 'history'   ? 'Ventas del día'
+            : section === 'pos'             ? 'Punto de Venta'
+            : section === 'history'         ? 'Ventas del día'
+            : section === 'historial_taller' ? 'Historial Taller'
             : 'Taller / Servicios'
           }
         </div>
@@ -177,9 +235,12 @@ const CashierPanel: React.FC = () => {
 
           {cajaStatus === 'abierta' && sedeId > 0 && (
             <>
-              {section === 'pos'       && <POSView sedeId={sedeId} />}
-              {section === 'history'   && <SalesHistoryView sedeId={sedeId} cajeroId={cajeroId} />}
-              {section === 'servicios' && <ServiciosView sedeId={sedeId} />}
+              {section === 'pos'             && <POSView sedeId={sedeId} />}
+              {section === 'history'         && <SalesHistoryView sedeId={sedeId} cajeroId={cajeroId} />}
+              {section === 'servicios'       && <ServiciosView sedeId={sedeId} />}
+              {section === 'historial_taller' && (
+                <HistorialServiciosView />
+              )}
             </>
           )}
 
@@ -190,6 +251,66 @@ const CashierPanel: React.FC = () => {
           )}
         </div>
       </main>
+
+      {/* Modal archivar órdenes */}
+      {showArchivarModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: 28, maxWidth: 420, width: '90%',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 18, color: '#2d3748' }}>
+              📦 Archivar órdenes del día
+            </h3>
+            <p style={{ margin: '0 0 20px', fontSize: 14, color: '#718096', lineHeight: 1.5 }}>
+              Se moverán al historial del taller todas las órdenes con estatus{' '}
+              <strong>Entregada</strong> o <strong>Cancelada</strong> de esta sede.
+              Las órdenes activas (en proceso, en diagnóstico, recibidas) <strong>no se verán afectadas</strong>.
+              Esta acción se puede realizar en cualquier momento.
+            </p>
+
+            {archivarMsg && (
+              <div style={{
+                padding: '10px 14px', borderRadius: 8, marginBottom: 16,
+                background: archivarMsg.startsWith('✅') ? '#f0fff4' : '#fff5f5',
+                border: `1px solid ${archivarMsg.startsWith('✅') ? '#9ae6b4' : '#fed7d7'}`,
+                color: archivarMsg.startsWith('✅') ? '#276749' : '#c53030',
+                fontSize: 13,
+              }}>
+                {archivarMsg}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowArchivarModal(false)}
+                disabled={archivando}
+                style={{
+                  padding: '9px 18px', borderRadius: 8, border: '1px solid #e2e8f0',
+                  background: '#fff', color: '#4a5568', cursor: 'pointer', fontWeight: 600, fontSize: 13,
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleArchivarOrdenes}
+                disabled={archivando || archivarMsg.startsWith('✅')}
+                style={{
+                  padding: '9px 18px', borderRadius: 8, border: 'none',
+                  background: archivando ? '#a0aec0' : '#d97706',
+                  color: '#fff', cursor: archivando ? 'wait' : 'pointer',
+                  fontWeight: 700, fontSize: 13,
+                }}
+              >
+                {archivando ? 'Archivando…' : 'Confirmar y archivar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

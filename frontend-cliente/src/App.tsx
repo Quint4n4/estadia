@@ -16,6 +16,7 @@ const CuponesPage         = lazy(() => import('./pages/CuponesPage'));
 const PerfilPage          = lazy(() => import('./pages/PerfilPage'));
 const MisServiciosPage    = lazy(() => import('./pages/MisServiciosPage'));
 const DetalleServicioPage = lazy(() => import('./pages/DetalleServicioPage'));
+const SeguimientoPage     = lazy(() => import('./pages/SeguimientoPage'));
 
 // Layout for authenticated screens (with bottom nav)
 const MainLayout: React.FC = () => {
@@ -58,6 +59,9 @@ const AppRoutes: React.FC = () => (
       <Route path="/bienvenida" element={<AuthGuard><BienvenidaPage /></AuthGuard>} />
       <Route path="/login"      element={<AuthGuard><LoginPage /></AuthGuard>} />
       <Route path="/registro"   element={<AuthGuard><RegistroPage /></AuthGuard>} />
+
+      {/* Public — no auth required */}
+      <Route path="/seguimiento/:token" element={<SeguimientoPage />} />
 
       {/* Protected — with bottom nav */}
       <Route element={<MainLayout />}>

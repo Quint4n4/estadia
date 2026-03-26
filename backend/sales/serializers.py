@@ -7,6 +7,7 @@ from django.db.models import F
 from rest_framework import serializers
 
 from branches.models import Sede
+from catalogo_servicios.models import CatalogoServicio
 from inventory.models import Producto, Stock
 from .models import Venta, VentaItem, AperturaCaja, ReporteCaja
 
@@ -14,19 +15,57 @@ from .models import Venta, VentaItem, AperturaCaja, ReporteCaja
 # ─── VentaItem ────────────────────────────────────────────────────────────────
 
 class VentaItemCreateSerializer(serializers.Serializer):
-    """Write-only: one line item for creating a sale."""
-    producto   = serializers.PrimaryKeyRelatedField(queryset=Producto.objects.filter(is_active=True))
+    """Write-only: one line item for creating a sale (producto or servicio de catálogo)."""
+    tipo              = serializers.ChoiceField(
+        choices=VentaItem.Tipo.choices,
+        default=VentaItem.Tipo.PRODUCTO,
+    )
+    producto          = serializers.PrimaryKeyRelatedField(
+        queryset=Producto.objects.filter(is_active=True),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+    catalogo_servicio = serializers.PrimaryKeyRelatedField(
+        queryset=CatalogoServicio.objects.filter(activo=True),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
     quantity   = serializers.IntegerField(min_value=1)
     unit_price = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0.01'))
 
+    def validate(self, attrs):
+        tipo = attrs.get('tipo', VentaItem.Tipo.PRODUCTO)
+        if tipo == VentaItem.Tipo.SERVICIO:
+            if not attrs.get('catalogo_servicio'):
+                raise serializers.ValidationError(
+                    {'catalogo_servicio': 'Este campo es requerido cuando tipo es SERVICIO.'}
+                )
+        else:
+            # tipo == PRODUCTO
+            if not attrs.get('producto'):
+                raise serializers.ValidationError(
+                    {'producto': 'Este campo es requerido cuando tipo es PRODUCTO.'}
+                )
+        return attrs
+
 
 class VentaItemSerializer(serializers.ModelSerializer):
-    producto_name = serializers.CharField(source='producto.name', read_only=True)
-    producto_sku  = serializers.CharField(source='producto.sku', read_only=True)
+    producto_name         = serializers.CharField(source='producto.name', read_only=True, default=None)
+    producto_sku          = serializers.CharField(source='producto.sku', read_only=True, default=None)
+    catalogo_servicio_nombre = serializers.CharField(
+        source='catalogo_servicio.nombre', read_only=True, default=None
+    )
 
     class Meta:
         model  = VentaItem
-        fields = ('id', 'producto', 'producto_name', 'producto_sku', 'quantity', 'unit_price', 'subtotal')
+        fields = (
+            'id', 'tipo',
+            'producto', 'producto_name', 'producto_sku',
+            'catalogo_servicio', 'catalogo_servicio_nombre',
+            'quantity', 'unit_price', 'subtotal',
+        )
 
 
 # ─── Venta ────────────────────────────────────────────────────────────────────
@@ -61,10 +100,12 @@ class VentaCreateSerializer(serializers.Serializer):
 
     def validate_items(self, items):
         if not items:
-            raise serializers.ValidationError('La venta debe tener al menos un producto.')
+            raise serializers.ValidationError('La venta debe tener al menos un producto o servicio.')
         return items
 
     def validate(self, attrs):
+        from catalogo_servicios.models import CatalogoServicioRefaccion
+
         sede      = attrs['sede']
         items     = attrs['items']
         descuento = attrs.get('descuento', Decimal('0'))
@@ -75,19 +116,56 @@ class VentaCreateSerializer(serializers.Serializer):
         subtotal = Decimal('0')
         errors = []
         for item in items:
-            producto = item['producto']
-            qty      = item['quantity']
+            tipo = item.get('tipo', VentaItem.Tipo.PRODUCTO)
+            qty  = item['quantity']
 
-            try:
-                stock = Stock.objects.get(producto=producto, sede=sede)
-                if stock.quantity < qty:
-                    errors.append(
-                        f'"{producto.name}": stock insuficiente ({stock.quantity} disponibles, se piden {qty}).'
-                    )
-            except Stock.DoesNotExist:
-                errors.append(
-                    f'"{producto.name}": sin stock registrado en esta sede.'
-                )
+            if tipo == VentaItem.Tipo.SERVICIO:
+                servicio = item.get('catalogo_servicio')
+                if servicio:
+                    if not servicio.activo:
+                        errors.append(
+                            f'El servicio "{servicio.nombre}" no está activo.'
+                        )
+                        subtotal += item['unit_price'] * qty
+                        continue
+
+                    # Check stock for each required refaccion
+                    refacciones = CatalogoServicioRefaccion.objects.filter(
+                        servicio=servicio,
+                        es_opcional=False,
+                    ).select_related('producto')
+
+                    for ref in refacciones:
+                        requerido = ref.cantidad * qty
+                        try:
+                            stock = Stock.objects.get(producto=ref.producto, sede=sede)
+                            if stock.quantity < requerido:
+                                errors.append(
+                                    f'Servicio "{servicio.nombre}" — '
+                                    f'"{ref.producto.name}": stock insuficiente '
+                                    f'({stock.quantity} disponibles, se requieren {requerido}).'
+                                )
+                        except Stock.DoesNotExist:
+                            errors.append(
+                                f'Servicio "{servicio.nombre}" — '
+                                f'"{ref.producto.name}": sin stock registrado en esta sede.'
+                            )
+            else:
+                # tipo == PRODUCTO
+                producto = item.get('producto')
+                if producto:
+                    try:
+                        stock = Stock.objects.get(producto=producto, sede=sede)
+                        if stock.quantity < qty:
+                            errors.append(
+                                f'"{producto.name}": stock insuficiente '
+                                f'({stock.quantity} disponibles, se piden {qty}).'
+                            )
+                    except Stock.DoesNotExist:
+                        errors.append(
+                            f'"{producto.name}": sin stock registrado en esta sede.'
+                        )
+
             subtotal += item['unit_price'] * qty
 
         if errors:
@@ -113,6 +191,8 @@ class VentaCreateSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        from catalogo_servicios.models import CatalogoServicioRefaccion
+
         sede         = validated_data['sede']
         items        = validated_data['items']
         descuento    = validated_data.get('descuento', Decimal('0'))
@@ -138,22 +218,71 @@ class VentaCreateSerializer(serializers.Serializer):
         )
 
         for item in items:
-            producto   = item['producto']
+            tipo       = item.get('tipo', VentaItem.Tipo.PRODUCTO)
             quantity   = item['quantity']
             unit_price = item['unit_price']
 
-            VentaItem.objects.create(
-                venta=venta,
-                producto=producto,
-                quantity=quantity,
-                unit_price=unit_price,
-                subtotal=unit_price * quantity,
-            )
+            if tipo == VentaItem.Tipo.SERVICIO:
+                servicio = item.get('catalogo_servicio')
 
-            # Decrement stock atomically
-            Stock.objects.select_for_update().filter(
-                producto=producto, sede=sede
-            ).update(quantity=F('quantity') - quantity)
+                VentaItem.objects.create(
+                    venta=venta,
+                    tipo=VentaItem.Tipo.SERVICIO,
+                    producto=None,
+                    catalogo_servicio=servicio,
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    subtotal=unit_price * quantity,
+                )
+
+                # Decrement stock for each required refaccion atomically
+                if servicio:
+                    refacciones = CatalogoServicioRefaccion.objects.filter(
+                        servicio=servicio,
+                        es_opcional=False,
+                    ).select_related('producto')
+
+                    for ref in refacciones:
+                        requerido = ref.cantidad * quantity
+                        stock_obj = Stock.objects.select_for_update().filter(
+                            producto=ref.producto,
+                            sede=sede,
+                        ).first()
+
+                        if stock_obj is None:
+                            raise serializers.ValidationError(
+                                f"No existe stock registrado para '{ref.producto.name}' "
+                                f"en esta sede."
+                            )
+
+                        if stock_obj.quantity < requerido:
+                            raise serializers.ValidationError(
+                                f"Stock insuficiente de '{ref.producto.name}' "
+                                f"para el servicio '{servicio.nombre}'. "
+                                f"Disponible: {stock_obj.quantity}, requerido: {requerido}."
+                            )
+
+                        stock_obj.quantity -= requerido
+                        stock_obj.save(update_fields=['quantity'])
+
+            else:
+                # tipo == PRODUCTO
+                producto = item['producto']
+
+                VentaItem.objects.create(
+                    venta=venta,
+                    tipo=VentaItem.Tipo.PRODUCTO,
+                    producto=producto,
+                    catalogo_servicio=None,
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    subtotal=unit_price * quantity,
+                )
+
+                # Decrement stock atomically
+                Stock.objects.select_for_update().filter(
+                    producto=producto, sede=sede
+                ).update(quantity=F('quantity') - quantity)
 
         return venta
 

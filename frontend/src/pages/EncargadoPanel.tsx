@@ -17,6 +17,7 @@ import {
   PackagePlus,
   ShoppingCart,
   RotateCcw,
+  BarChart2,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { authService } from '../api/auth.service';
@@ -31,9 +32,10 @@ import EncargadoSalesView from '../components/encargado/EncargadoSalesView';
 import EncargadoEntradasView from '../components/encargado/EncargadoEntradasView';
 import ControlCajasCard from '../components/encargado/ControlCajasCard';
 import ReportesCajaView from '../components/encargado/ReportesCajaView';
+import ReporteTallerView from '../components/taller/ReporteTallerView';
 import '../styles/DashboardPage.css';
 
-type Section = 'dashboard' | 'users' | 'products' | 'entries' | 'audits' | 'sales' | 'reportes-caja';
+type Section = 'dashboard' | 'users' | 'products' | 'entries' | 'audits' | 'sales' | 'reportes-caja' | 'reporte-taller';
 
 const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; group?: string }[] = [
   { id: 'dashboard',  label: 'Mi Sede',    icon: <Building2 size={18} /> },
@@ -41,8 +43,9 @@ const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; group?: st
   { id: 'products',   label: 'Productos',  icon: <Package size={18} />,     group: 'Inventario' },
   { id: 'entries',    label: 'Entradas',   icon: <PackagePlus size={18} />, group: 'Inventario' },
   { id: 'audits',     label: 'Auditorías', icon: <ClipboardList size={18} />, group: 'Inventario' },
-  { id: 'sales',          label: 'Ventas',          icon: <TrendingUp size={18} />, group: 'Ventas' },
-  { id: 'reportes-caja', label: 'Reportes Caja', icon: <FileText size={18} />,   group: 'Ventas' },
+  { id: 'sales',              label: 'Ventas',         icon: <TrendingUp size={18} />, group: 'Ventas' },
+  { id: 'reportes-caja',     label: 'Reportes Caja',  icon: <FileText size={18} />,   group: 'Ventas' },
+  { id: 'reporte-taller',    label: 'Reporte Taller', icon: <BarChart2 size={18} />,  group: 'Ventas' },
 ];
 
 // ─── KPI strip ───────────────────────────────────────────────────────────────
@@ -412,6 +415,7 @@ const EncargadoPanel: React.FC = () => {
           {activeSection === 'entries'    && user?.sede && <EncargadoEntradasView sedeId={user.sede.id} />}
           {activeSection === 'sales'         && user?.sede && <EncargadoSalesView sedeId={user.sede.id} />}
           {activeSection === 'reportes-caja' && user?.sede && <ReportesCajaView sedeId={user.sede.id} />}
+          {activeSection === 'reporte-taller' && user?.sede && <ReporteTallerView sedeId={user.sede.id} />}
         </main>
       </div>
 

@@ -137,7 +137,19 @@ const SalesHistoryView: React.FC<Props> = ({ sedeId, cajeroId }) => {
                 <tr key={v.id} style={{ opacity: v.status === 'CANCELADA' ? 0.55 : 1 }}>
                   <td style={{ fontWeight: 600 }}># {v.id}</td>
                   <td>{fmtTime(v.created_at)}</td>
-                  <td>{v.items.length} artículo{v.items.length !== 1 ? 's' : ''}</td>
+                  <td>
+                    {v.items.length} artículo{v.items.length !== 1 ? 's' : ''}
+                    {v.items.some((item: any) => item.tipo === 'SERVICIO') && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 3,
+                        background: '#faf5ff', border: '1px solid #d6bcfa',
+                        color: '#553c9a', borderRadius: 10,
+                        padding: '1px 7px', fontSize: 10, fontWeight: 700, marginLeft: 6,
+                      }}>
+                        🔧 Taller
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <span className={`badge-metodo ${metodoBadgeClass[v.metodo_pago] ?? ''}`}>
                       {v.metodo_pago}

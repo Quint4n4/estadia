@@ -41,6 +41,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'cloudinary_storage',
+    'cloudinary',
 
     # Local apps
     'users',
@@ -51,6 +53,7 @@ INSTALLED_APPS = [
     'customers',
     'pedidos',
     'taller',
+    'catalogo_servicios',
 ]
 
 MIDDLEWARE = [
@@ -140,7 +143,14 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-# Media files (user uploads: product images)
+# Media files — Cloudinary cloud storage
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': env('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY':    env('CLOUDINARY_API_KEY'),
+    'API_SECRET': env('CLOUDINARY_API_SECRET'),
+}
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
@@ -217,3 +227,6 @@ DEFAULT_FROM_EMAIL  = env('DEFAULT_FROM_EMAIL',  default='MotoQFox <noreply@moto
 
 # ── Frontend URL (used in reset-password links) ────────────────────────────────
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5173')
+
+# ── Frontend cliente URL (used in tracking links sent to customers) ────────────
+FRONTEND_CLIENTE_URL = env('FRONTEND_CLIENTE_URL', default='http://localhost:5174')
