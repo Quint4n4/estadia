@@ -364,7 +364,8 @@ class AuditoriaInventario(models.Model):
         FINALIZADA = 'FINALIZADA', 'Finalizada'
 
     sede       = models.ForeignKey('branches.Sede', on_delete=models.PROTECT, related_name='auditorias', verbose_name='Sede')
-    fecha      = models.DateField(verbose_name='Fecha')
+    fecha      = models.DateField(verbose_name='Fecha de visita')
+    motivo     = models.CharField(max_length=500, blank=True, default='', verbose_name='Motivo de la visita')
     status     = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT, verbose_name='Estado')
     created_by = models.ForeignKey(
         'users.CustomUser', on_delete=models.SET_NULL,

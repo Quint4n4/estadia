@@ -13,7 +13,12 @@
       "Bash(where pg_dump)",
       "WebSearch",
       "Bash(gh api:*)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(npx tsc:*)",
+      "Bash(source venv/Scripts/activate)",
+      "Bash(source ../venv/Scripts/activate)",
+      "Bash(python ../scripts/generar_etiquetas_barras.py)",
+      "Bash(python manage.py migrate)"
     ],
     "deny": [],
     "ask": []

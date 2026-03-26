@@ -333,7 +333,7 @@ class AuditoriaInventarioSerializer(serializers.ModelSerializer):
     class Meta:
         model  = AuditoriaInventario
         fields = (
-            'id', 'sede', 'sede_name', 'fecha', 'status',
+            'id', 'sede', 'sede_name', 'fecha', 'motivo', 'status',
             'created_by', 'created_by_name',
             'items', 'items_count', 'created_at', 'updated_at',
         )
@@ -349,7 +349,7 @@ class AuditoriaInventarioSerializer(serializers.ModelSerializer):
 class AuditoriaCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model  = AuditoriaInventario
-        fields = ('sede', 'fecha')
+        fields = ('sede', 'fecha', 'motivo')
 
     @transaction.atomic
     def create(self, validated_data):

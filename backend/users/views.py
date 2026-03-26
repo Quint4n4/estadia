@@ -4,7 +4,7 @@ Views for User Authentication and Management
 from datetime import timedelta
 from django.contrib.auth import authenticate
 from django.core.mail import send_mail
-from django.db.models import Q, F
+from django.db.models import Q, F, Sum
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.views import APIView
@@ -252,8 +252,11 @@ def _sede_snapshot(sede):
         from inventory.models import Stock
         low_stock_count    = Stock.objects.filter(sede=sede, quantity__lte=F('min_quantity')).count()
         out_of_stock_count = Stock.objects.filter(sede=sede, quantity=0).count()
+        total_stock_quantity = Stock.objects.filter(sede=sede).aggregate(
+            total=Sum('quantity')
+        )['total'] or 0
     except Exception:
-        low_stock_count = out_of_stock_count = 0
+        low_stock_count = out_of_stock_count = total_stock_quantity = 0
 
     return {
         'id':    sede.id,
@@ -272,6 +275,7 @@ def _sede_snapshot(sede):
         ],
         'low_stock_count':    low_stock_count,
         'out_of_stock_count': out_of_stock_count,
+        'total_stock_quantity': total_stock_quantity,
     }
 
 

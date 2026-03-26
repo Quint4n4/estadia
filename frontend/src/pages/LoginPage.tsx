@@ -1,4 +1,5 @@
-import React, { useState, useEffect, FormEvent } from 'react';
+import React, { useState, useEffect } from 'react';
+import type { FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,6 +14,9 @@ interface LockState {
   unlockRequested:  boolean;
   email:            string;
 }
+
+const LOGIN_BG_IMG =
+  'https://lh3.googleusercontent.com/aida-public/AB6AXuBc5Kbs1wstVB0FlZKpd4pVITL90GDjpsWjdsukRr5zR4k989P686myeyvCT2Uudew-E-yUzMx1_4Y7fOv_yLqpA38z_KZ4fDrVEiaLiuc7UvERqZ2PhU9i96YI3U7hAh86kzzxT53sYY3txm45RSnVVK--W2VjeIARLZmaQoHCHoOnMfoxBlQwfVTY64GLEvamAfsU2Q7OlLPKxHi1NYp3tRSBm6tm4nDVQF9WRIfFN_kbx2BvraTfuoZeUpiR_PpqEDugiTRfE3c2';
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -122,153 +126,177 @@ const LoginPage: React.FC = () => {
   const isLocked = !!lockState && lockState.remaining > 0;
 
   return (
-    <div className="login-container">
-      <div className="login-card" style={{ maxWidth: isLocked ? 460 : 420 }}>
-        <div className="login-header">
-          <div className="logo-circle">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-          </div>
-          <h1>MotoQFox</h1>
-          <p>Sistema de Inventario y Punto de Venta</p>
-        </div>
-
-        {/* ── LOCKOUT PANEL ── */}
-        {isLocked ? (
-          <div className="lock-panel">
-            <Lock size={48} className="lock-icon" />
-            <h3 className="lock-title">Cuenta bloqueada temporalmente</h3>
-            <p className="lock-subtitle">
-              Demasiados intentos fallidos. Vuelve a intentarlo en:
-            </p>
-            <div className="lock-countdown">{fmtCountdown(lockState.remaining)}</div>
-
-            <div className="lock-actions">
-              {/* Request unlock */}
-              {!lockState.unlockRequested ? (
-                <button
-                  className="lock-btn lock-btn--primary"
-                  onClick={handleRequestUnlock}
-                  disabled={unlockLoading}
-                >
-                  {unlockLoading ? 'Enviando...' : 'Solicitar desbloqueo al administrador'}
-                </button>
-              ) : (
-                <div className="lock-requested-badge">
-                  Solicitud enviada al administrador
-                </div>
-              )}
-
-              {unlockMsg && (
-                <p className="lock-feedback">{unlockMsg}</p>
-              )}
-
-              {/* Forgot password while locked */}
-              <Link to="/forgot-password" className="lock-btn lock-btn--secondary">
-                ¿Olvidaste tu contraseña?
-              </Link>
-            </div>
-          </div>
-        ) : (
-          /* ── NORMAL LOGIN FORM ── */
-          <form onSubmit={handleSubmit} className="login-form">
-            {/* General error */}
-            {error && (
-              <div className="error-message">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-                <span>{error}</span>
-              </div>
-            )}
-
-            {/* Remaining-attempts warning */}
-            {remainingAttempts !== null && remainingAttempts <= 3 && (
-              <div className="attempts-warning">
-                <AlertTriangle size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-                Te queda{remainingAttempts !== 1 ? 'n' : ''}{' '}
-                <strong>{remainingAttempts}</strong> intento{remainingAttempts !== 1 ? 's' : ''} antes
-                de que la cuenta se bloquee por {30} minutos.
-              </div>
-            )}
-
-            <div className="form-group">
-              <label htmlFor="email">Correo Electrónico</label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@motoqfox.com"
-                required
-                disabled={isLoading}
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="password">Contraseña</label>
-              <div className="password-wrapper">
-                <input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  disabled={isLoading}
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() => setShowPassword((v) => !v)}
-                  tabIndex={-1}
-                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                >
-                  {showPassword ? (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                      <line x1="1" y1="1" x2="23" y2="23" />
-                    </svg>
-                  ) : (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Forgot password link */}
-            <div style={{ textAlign: 'right', marginTop: -8 }}>
-              <Link to="/forgot-password" className="forgot-link">
-                ¿Olvidaste tu contraseña?
-              </Link>
-            </div>
-
-            <button type="submit" className="login-button" disabled={isLoading}>
-              {isLoading ? (
-                <span className="loading-spinner">Iniciando sesión...</span>
-              ) : (
-                'Iniciar Sesión'
-              )}
-            </button>
-          </form>
-        )}
-
-        <div className="login-footer">
-          <p>© 2026 MotoQFox. Todos los derechos reservados.</p>
-        </div>
+    <div className="login-page">
+      <div className="login-bg-layer" aria-hidden>
+        <img src={LOGIN_BG_IMG} alt="" />
       </div>
+
+      <main className="login-main">
+        <div className="login-main-inner">
+          <div className="login-brand">
+            <div className="login-brand-mark">
+              <span className="material-symbols-outlined login-brand-icon">motorcycle</span>
+            </div>
+            <h1 className="login-brand-title">MotoQFox</h1>
+            <p className="login-brand-tagline">Sistema de Inventario y Punto de Venta</p>
+          </div>
+
+          <div className={`login-card${isLocked ? ' login-card--wide' : ''}`}>
+            {isLocked ? (
+              <div className="lock-panel">
+                <Lock size={48} className="lock-icon" />
+                <h3 className="lock-title">Cuenta bloqueada temporalmente</h3>
+                <p className="lock-subtitle">
+                  Demasiados intentos fallidos. Vuelve a intentarlo en:
+                </p>
+                <div className="lock-countdown">{fmtCountdown(lockState.remaining)}</div>
+
+                <div className="lock-actions">
+                  {!lockState.unlockRequested ? (
+                    <button
+                      type="button"
+                      className="lock-btn lock-btn--primary"
+                      onClick={handleRequestUnlock}
+                      disabled={unlockLoading}
+                    >
+                      {unlockLoading ? 'Enviando...' : 'Solicitar desbloqueo al administrador'}
+                    </button>
+                  ) : (
+                    <div className="lock-requested-badge">
+                      Solicitud enviada al administrador
+                    </div>
+                  )}
+
+                  {unlockMsg && (
+                    <p className="lock-feedback">{unlockMsg}</p>
+                  )}
+
+                  <Link to="/forgot-password" className="lock-btn lock-btn--secondary">
+                    ¿Olvidaste tu contraseña?
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="login-form">
+                <div className="login-welcome">
+                  <h2>Bienvenido</h2>
+                  <p>Ingresa tus credenciales para acceder al taller.</p>
+                </div>
+
+                {error && (
+                  <div className="error-message">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="8" x2="12" y2="12" />
+                      <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                {remainingAttempts !== null && remainingAttempts <= 3 && (
+                  <div className="attempts-warning">
+                    <AlertTriangle size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                    Te queda{remainingAttempts !== 1 ? 'n' : ''}{' '}
+                    <strong>{remainingAttempts}</strong> intento{remainingAttempts !== 1 ? 's' : ''} antes
+                    de que la cuenta se bloquee por {30} minutos.
+                  </div>
+                )}
+
+                <div className="login-field">
+                  <label htmlFor="email" className="login-label">Correo Electrónico</label>
+                  <div className="login-input-wrap">
+                    <span className="material-symbols-outlined login-input-icon" aria-hidden>mail</span>
+                    <input
+                      id="email"
+                      className="login-input"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="mecanico@motoqfox.com"
+                      required
+                      disabled={isLoading}
+                      autoComplete="email"
+                    />
+                  </div>
+                </div>
+
+                <div className="login-field">
+                  <div className="login-label-row">
+                    <label htmlFor="password" className="login-label">Contraseña</label>
+                    <Link to="/forgot-password" className="forgot-link">
+                      ¿Olvidaste tu contraseña?
+                    </Link>
+                  </div>
+                  <div className="login-input-wrap login-input-wrap--password">
+                    <span className="material-symbols-outlined login-input-icon" aria-hidden>lock</span>
+                    <input
+                      id="password"
+                      className="login-input"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                      disabled={isLoading}
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      onClick={() => setShowPassword((v) => !v)}
+                      tabIndex={-1}
+                      aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    >
+                      <span className="material-symbols-outlined">
+                        {showPassword ? 'visibility_off' : 'visibility'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="login-button-wrap">
+                  <button type="submit" className="login-button" disabled={isLoading}>
+                    {isLoading ? (
+                      <span className="loading-spinner">Iniciando sesión...</span>
+                    ) : (
+                      <>
+                        <span>Iniciar Sesión</span>
+                        <span className="material-symbols-outlined login-button-arrow" aria-hidden>
+                          arrow_forward
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="login-help-line">
+                  ¿No tienes cuenta?{' '}
+                  <a href="#">Contacta al Administrador</a>
+                </div>
+              </form>
+            )}
+          </div>
+
+          <div className="login-dots" aria-hidden>
+            <span /><span /><span />
+          </div>
+        </div>
+      </main>
+
+      <footer className="login-site-footer">
+        <div className="login-site-footer-inner">
+          <p className="login-site-footer-copy">© 2026 MotoQFox. Todos los derechos reservados.</p>
+          <div className="login-site-footer-links">
+            <a href="#">Privacidad</a>
+            <a href="#">Términos</a>
+            <a href="#">Soporte</a>
+          </div>
+        </div>
+      </footer>
+
+      <div className="login-corner-deco" aria-hidden />
     </div>
   );
 };

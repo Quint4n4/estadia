@@ -15,6 +15,7 @@ from .views import (
     EntradaInventarioListCreateView,
     AuditoriaListCreateView, AuditoriaDetailView,
     AuditoriaItemUpdateView, AuditoriaFinalizeView,
+    SupervisionPDFView,
 )
 
 app_name = 'inventory'
@@ -59,4 +60,5 @@ urlpatterns = [
     path('audits/<int:pk>/',                              AuditoriaDetailView.as_view(),       name='audit_detail'),
     path('audits/<int:audit_id>/items/<int:item_id>/',    AuditoriaItemUpdateView.as_view(),   name='audit_item_update'),
     path('audits/<int:pk>/finalize/',                     AuditoriaFinalizeView.as_view(),     name='audit_finalize'),
+    path('audits/<int:pk>/pdf/',                          SupervisionPDFView.as_view(),        name='audit_pdf'),
 ]

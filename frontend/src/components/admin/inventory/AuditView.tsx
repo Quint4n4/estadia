@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { inventoryService } from '../../../api/inventory.service';
 import { branchesService } from '../../../api/branches.service';
+import apiClient from '../../../api/axios.config';
 import type { AuditoriaInventario, AuditoriaItem } from '../../../types/inventory.types';
 import type { SedeDetail, Pagination } from '../../../types/auth.types';
-import { Eye, X } from 'lucide-react';
+import { Eye, X, FileDown } from 'lucide-react';
 
 const AuditView: React.FC = () => {
   const [audits, setAudits] = useState<AuditoriaInventario[]>([]);
@@ -20,11 +21,15 @@ const AuditView: React.FC = () => {
   const [counts, setCounts] = useState<Record<number, string>>({});
   const [isFinalizing, setIsFinalizing] = useState(false);
 
-  // New audit form
+  // New supervision form
   const [showNewForm, setShowNewForm] = useState(false);
   const [newSede, setNewSede] = useState('');
   const [newFecha, setNewFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [newMotivo, setNewMotivo] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+
+  // PDF download state
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   const loadSedes = useCallback(() => {
     branchesService.list().then(r => setSedes(r.data.filter(s => s.is_active))).catch(() => {});
@@ -37,7 +42,7 @@ const AuditView: React.FC = () => {
     if (statusFilter) params.status = statusFilter;
     inventoryService.listAudits(params)
       .then(r => { setAudits(r.data.audits); setPagination(r.data.pagination); })
-      .catch(() => setError('Error al cargar auditorías'))
+      .catch(() => setError('Error al cargar supervisiones'))
       .finally(() => setIsLoading(false));
   }, [page, sedeFilter, statusFilter]);
 
@@ -49,7 +54,7 @@ const AuditView: React.FC = () => {
     const r = await inventoryService.getAudit(id);
     setActiveAudit(r.data);
     const init: Record<number, string> = {};
-    r.data.items.forEach(item => {
+    r.data.items.forEach((item: AuditoriaItem) => {
       init[item.id] = item.stock_fisico !== null ? String(item.stock_fisico) : '';
     });
     setCounts(init);
@@ -82,14 +87,36 @@ const AuditView: React.FC = () => {
     if (!newSede || !newFecha) return;
     setIsCreating(true);
     try {
-      const r = await inventoryService.createAudit({ sede: Number(newSede), fecha: newFecha });
+      const r = await inventoryService.createAudit({
+        sede: Number(newSede), fecha: newFecha, motivo: newMotivo,
+      });
       setShowNewForm(false);
+      setNewMotivo('');
       openAudit(r.data.id);
       loadAudits();
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? 'Error al crear auditoría');
+      setError(err?.response?.data?.message ?? 'Error al crear supervisión');
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleDownloadPDF = async (auditId: number, sedeName: string, fecha: string) => {
+    setDownloadingId(auditId);
+    try {
+      const res = await apiClient.get(`/inventory/audits/${auditId}/pdf/`, {
+        responseType: 'blob',
+      });
+      const url  = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `supervision_${sedeName.replace(/\s+/g, '_')}_${fecha}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('No se pudo descargar el PDF');
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -100,14 +127,27 @@ const AuditView: React.FC = () => {
       <div className="section-container">
         <div className="section-header">
           <div>
-            <h2>Auditoría — {activeAudit.sede_name}</h2>
-            <p>{activeAudit.fecha} · {activeAudit.status === 'DRAFT' ? 'Borrador' : 'Finalizada'}</p>
+            <h2>Supervisión — {activeAudit.sede_name}</h2>
+            <p>
+              {activeAudit.fecha}
+              {(activeAudit as any).motivo && ` · ${(activeAudit as any).motivo}`}
+              {' · '}{activeAudit.status === 'DRAFT' ? 'Borrador' : 'Finalizada'}
+            </p>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              className="btn-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              disabled={downloadingId === activeAudit.id}
+              onClick={() => handleDownloadPDF(activeAudit.id, activeAudit.sede_name, activeAudit.fecha)}
+            >
+              <FileDown size={14} />
+              {downloadingId === activeAudit.id ? 'Generando…' : 'Descargar PDF'}
+            </button>
             <button className="btn-secondary" onClick={() => setActiveAudit(null)}>← Volver</button>
             {activeAudit.status === 'DRAFT' && (
               <button className="btn-primary" onClick={handleFinalize} disabled={isFinalizing || pendingCount > 0}>
-                {isFinalizing ? 'Finalizando...' : `Finalizar auditoría${pendingCount > 0 ? ` (${pendingCount} pendientes)` : ''}`}
+                {isFinalizing ? 'Finalizando...' : `Finalizar${pendingCount > 0 ? ` (${pendingCount} pendientes)` : ''}`}
               </button>
             )}
           </div>
@@ -118,11 +158,7 @@ const AuditView: React.FC = () => {
           <table className="users-table">
             <thead>
               <tr>
-                <th>SKU</th>
-                <th>Producto</th>
-                <th>En sistema</th>
-                <th>Conteo físico</th>
-                <th>Diferencia</th>
+                <th>SKU</th><th>Producto</th><th>En sistema</th><th>Conteo físico</th><th>Diferencia</th>
               </tr>
             </thead>
             <tbody>
@@ -143,9 +179,7 @@ const AuditView: React.FC = () => {
                           className="table-input-number"
                           placeholder="—"
                         />
-                      ) : (
-                        <span>{item.stock_fisico ?? '—'}</span>
-                      )}
+                      ) : <span>{item.stock_fisico ?? '—'}</span>}
                     </td>
                     <td>
                       {diff !== null ? (
@@ -165,12 +199,15 @@ const AuditView: React.FC = () => {
     );
   }
 
-  // ── Audits list ──────────────────────────────────────────────────────────
+  // ── Supervisiones list ────────────────────────────────────────────────────
   return (
     <div className="section-container">
       <div className="section-header">
-        <div><h2>Auditorías de Inventario</h2><p>{pagination.total} auditorías</p></div>
-        <button className="btn-primary" onClick={() => setShowNewForm(true)}>+ Nueva Auditoría</button>
+        <div>
+          <h2>Supervisión de Inventario</h2>
+          <p>{pagination.total} supervisiones</p>
+        </div>
+        <button className="btn-primary" onClick={() => setShowNewForm(true)}>+ Nueva Supervisión</button>
       </div>
 
       <div className="filters-bar">
@@ -180,7 +217,7 @@ const AuditView: React.FC = () => {
         </select>
         <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
           <option value="">Todos los estados</option>
-          <option value="DRAFT">Borrador</option>
+          <option value="DRAFT">Programada</option>
           <option value="FINALIZADA">Finalizada</option>
         </select>
       </div>
@@ -193,19 +230,42 @@ const AuditView: React.FC = () => {
             <div className="table-container">
             <table className="users-table">
               <thead>
-                <tr><th>Sede</th><th>Fecha</th><th>Productos</th><th>Estado</th><th>Creada por</th><th>Acciones</th></tr>
+                <tr>
+                  <th>Sede</th><th>Fecha visita</th><th>Motivo</th><th>Productos</th>
+                  <th>Estado</th><th>Creada por</th><th>Acciones</th>
+                </tr>
               </thead>
               <tbody>
                 {audits.length === 0 ? (
-                  <tr><td colSpan={6} className="empty-state">No hay auditorías</td></tr>
+                  <tr><td colSpan={7} className="empty-state">No hay supervisiones registradas</td></tr>
                 ) : audits.map(a => (
                   <tr key={a.id}>
                     <td>{a.sede_name}</td>
                     <td>{a.fecha}</td>
+                    <td style={{ color: '#4a5568', fontSize: 13 }}>
+                      {(a as any).motivo || <span className="text-muted">—</span>}
+                    </td>
                     <td>{a.items_count} productos</td>
-                    <td><span className={`status-badge ${a.status === 'FINALIZADA' ? 'active' : 'inactive'}`}>{a.status === 'FINALIZADA' ? 'Finalizada' : 'Borrador'}</span></td>
+                    <td>
+                      <span className={`status-badge ${a.status === 'FINALIZADA' ? 'active' : 'inactive'}`}>
+                        {a.status === 'FINALIZADA' ? 'Finalizada' : 'Programada'}
+                      </span>
+                    </td>
                     <td>{a.created_by_name}</td>
-                    <td><button className="btn-icon btn-edit" title="Ver" onClick={() => openAudit(a.id)}><Eye size={14} /></button></td>
+                    <td style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn-icon btn-edit" title="Ver detalle" onClick={() => openAudit(a.id)}>
+                        <Eye size={14} />
+                      </button>
+                      <button
+                        className="btn-icon"
+                        title="Descargar PDF de stock"
+                        disabled={downloadingId === a.id}
+                        onClick={() => handleDownloadPDF(a.id, a.sede_name, a.fecha)}
+                        style={{ color: '#2b6cb0' }}
+                      >
+                        <FileDown size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -224,9 +284,9 @@ const AuditView: React.FC = () => {
 
       {showNewForm && (
         <div className="modal-overlay" onClick={() => setShowNewForm(false)}>
-          <div className="modal-card" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+          <div className="modal-card" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Nueva Auditoría</h2>
+              <h2>Nueva Supervisión</h2>
               <button className="modal-close" onClick={() => setShowNewForm(false)} aria-label="Cerrar"><X size={18} /></button>
             </div>
             <form onSubmit={handleCreate} className="modal-form">
@@ -238,13 +298,22 @@ const AuditView: React.FC = () => {
                 </select>
               </div>
               <div className="form-group">
-                <label>Fecha *</label>
+                <label>Fecha de visita *</label>
                 <input type="date" value={newFecha} onChange={e => setNewFecha(e.target.value)} required />
+              </div>
+              <div className="form-group">
+                <label>Motivo de la visita</label>
+                <textarea
+                  value={newMotivo}
+                  onChange={e => setNewMotivo(e.target.value)}
+                  rows={2}
+                  placeholder="Revisión trimestral, auditoría sorpresa, etc."
+                />
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setShowNewForm(false)}>Cancelar</button>
                 <button type="submit" className="btn-primary" disabled={isCreating}>
-                  {isCreating ? 'Creando...' : 'Crear auditoría'}
+                  {isCreating ? 'Creando...' : 'Crear supervisión'}
                 </button>
               </div>
             </form>

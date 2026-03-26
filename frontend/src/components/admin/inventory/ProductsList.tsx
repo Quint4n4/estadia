@@ -220,6 +220,25 @@ const ProductsList: React.FC<Props> = ({ sedeId }) => {
                           {sedeStock} uds
                         </div>
                       </div>
+                      {/* Per-sede breakdown — only in admin view (no sedeId) */}
+                      {!sedeId && p.stock_items.length > 0 && (
+                        <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                          {p.stock_items.map(s => (
+                            <span
+                              key={s.sede_id}
+                              title={s.sede_name}
+                              style={{
+                                fontSize: 10, padding: '1px 5px', borderRadius: 4,
+                                background: s.quantity === 0 ? '#fed7d7' : s.is_low_stock ? '#fefcbf' : '#c6f6d5',
+                                color:      s.quantity === 0 ? '#c53030' : s.is_low_stock ? '#744210' : '#276749',
+                                fontWeight: 600, whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {s.sede_name.split(' ')[0]}: {s.quantity}
+                            </span>
+                          ))}
+                        </div>
+                      )}
 
                       {/* Meta */}
                       {(p.marca_fabricante_name || p.ubicacion_almacen) && (

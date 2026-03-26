@@ -129,7 +129,7 @@ export const inventoryService = {
   },
 
   // ── Audits ────────────────────────────────────────────────────────────
-  listAudits(params?: { sede_id?: number; status?: string; page?: number }): Promise<AuditoriaListResponse> {
+  listAudits(params?: { sede_id?: number; status?: string; fecha?: string; page?: number }): Promise<AuditoriaListResponse> {
     return apiClient.get(`${BASE}/audits/`, { params }).then(r => r.data);
   },
   getAudit(id: number): Promise<{ success: boolean; data: AuditoriaInventario }> {

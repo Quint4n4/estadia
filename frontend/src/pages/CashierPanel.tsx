@@ -156,17 +156,19 @@ const CashierPanel: React.FC = () => {
       </aside>
 
       {/* Main area */}
-      <main className="cashier-main">
-        <div className="cashier-main-header">
-          {cajaStatus !== 'abierta'
-            ? 'Caja'
-            : section === 'pos'       ? 'Punto de Venta'
-            : section === 'history'   ? 'Ventas del día'
-            : 'Taller / Servicios'
-          }
-        </div>
+      <main className={`cashier-main${section === 'pos' && cajaStatus === 'abierta' ? ' cashier-main--pos' : ''}`}>
+        {!(section === 'pos' && cajaStatus === 'abierta') && (
+          <div className="cashier-main-header">
+            {cajaStatus !== 'abierta'
+              ? 'Caja'
+              : section === 'history'   ? 'Ventas del día'
+              : section === 'servicios' ? 'Taller / Servicios'
+              : 'Punto de Venta'
+            }
+          </div>
+        )}
 
-        <div className="cashier-main-body">
+        <div className={`cashier-main-body${section === 'pos' && cajaStatus === 'abierta' ? ' cashier-main-body--pos' : ''}`}>
           {cajaStatus === 'loading' && (
             <p style={{ textAlign: 'center', marginTop: 60, color: '#718096' }}>Verificando estado de caja…</p>
           )}

@@ -6,6 +6,7 @@ import type {
   CompatibilidadPieza,
 } from '../../../types/inventory.types';
 import { X, ClipboardList, Wrench, ImageIcon } from 'lucide-react';
+import { useBarcodeScanner } from '../../../hooks/useBarcodeScanner';
 
 interface Props {
   product?: Producto | null;
@@ -61,7 +62,11 @@ const ProductFormModal: React.FC<Props> = ({ product, onClose, onSaved }) => {
   const [imageFile,    setImageFile]    = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(product?.imagen ?? null);
   const [imageError,   setImageError]   = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef    = useRef<HTMLInputElement>(null);
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Barcode scanner feedback ───────────────────────────────────────────
+  const [barcodeScanFeedback, setBarcodeScanFeedback] = useState<'idle' | 'scanned'>('idle');
 
   // ── Catalog data ──────────────────────────────────────────────────────
   const [categories,   setCategories]   = useState<Categoria[]>([]);
@@ -114,6 +119,19 @@ const ProductFormModal: React.FC<Props> = ({ product, onClose, onSaved }) => {
       .then(r => setMotoModels(r.data.models))
       .catch(() => {});
   }, [selectedMarca]);
+
+  // ── Barcode scanner: auto-fill codigo_barras field ────────────────────
+  useBarcodeScanner({
+    onScan: (code) => {
+      const barcodeHasFocus = document.activeElement === barcodeInputRef.current;
+      if (!form.codigo_barras || barcodeHasFocus) {
+        setForm(f => ({ ...f, codigo_barras: code }));
+        setBarcodeScanFeedback('scanned');
+        setTimeout(() => setBarcodeScanFeedback('idle'), 2000);
+      }
+    },
+    enabled: true,
+  });
 
   const change = (field: string, value: string | boolean) =>
     setForm(f => ({ ...f, [field]: value }));
@@ -376,12 +394,23 @@ const ProductFormModal: React.FC<Props> = ({ product, onClose, onSaved }) => {
                   </div>
                 )}
                 <div className="form-group">
-                  <label>Código de barras</label>
+                  <label>
+                    Código de barras
+                    {barcodeScanFeedback === 'scanned' && (
+                      <span style={{ marginLeft: 8, color: '#48bb78', fontSize: 12, fontWeight: 600 }}>
+                        ✓ Escaneado
+                      </span>
+                    )}
+                  </label>
                   <input
+                    ref={barcodeInputRef}
                     value={form.codigo_barras}
                     onChange={e => change('codigo_barras', e.target.value)}
-                    placeholder="EAN-13 / Code128 (auto si se deja vacío)"
+                    placeholder="Escanea o escribe el código..."
                   />
+                  <span style={{ fontSize: 11, color: '#718096', marginTop: 2, display: 'block' }}>
+                    Si se deja vacío se usará el SKU como código de barras
+                  </span>
                 </div>
               </div>
 

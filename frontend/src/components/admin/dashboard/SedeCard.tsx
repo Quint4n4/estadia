@@ -77,6 +77,19 @@ const SedeCard: React.FC<Props> = ({ sede, resumen, onClick }) => {
         <Stat label="Cajeros" value={sede.total_cashiers} />
       </div>
 
+      {/* Inventario total */}
+      <div style={{
+        marginTop: 8, padding: '6px 10px',
+        background: 'var(--color-bg-main)',
+        borderRadius: 6, border: '1px solid var(--color-border)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      }}>
+        <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Inventario total</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)' }}>
+          {(sede.total_stock_quantity ?? 0).toLocaleString('es-MX')} uds.
+        </span>
+      </div>
+
       {/* Stock alerts */}
       {hasAlerts && (
         <div className="sede-card-alerts">

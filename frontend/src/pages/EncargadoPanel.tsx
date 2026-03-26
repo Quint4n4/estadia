@@ -4,7 +4,6 @@ import {
   Building2,
   Users,
   Package,
-  ClipboardList,
   Bike,
   Menu as MenuIcon,
   Wrench,
@@ -17,15 +16,16 @@ import {
   PackagePlus,
   ShoppingCart,
   RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { authService } from '../api/auth.service';
 import { salesService } from '../api/sales.service';
+import { inventoryService } from '../api/inventory.service';
 import type { SedeSnapshot } from '../types/auth.types';
 import type { SedeResumenVentas } from '../types/sales.types';
 import UsersList from '../components/admin/UsersList';
 import ProductsList from '../components/admin/inventory/ProductsList';
-import AuditView from '../components/admin/inventory/AuditView';
 import SedeDetailPanel from '../components/admin/dashboard/SedeDetailPanel';
 import EncargadoSalesView from '../components/encargado/EncargadoSalesView';
 import EncargadoEntradasView from '../components/encargado/EncargadoEntradasView';
@@ -33,16 +33,15 @@ import ControlCajasCard from '../components/encargado/ControlCajasCard';
 import ReportesCajaView from '../components/encargado/ReportesCajaView';
 import '../styles/DashboardPage.css';
 
-type Section = 'dashboard' | 'users' | 'products' | 'entries' | 'audits' | 'sales' | 'reportes-caja';
+type Section = 'dashboard' | 'users' | 'products' | 'entries' | 'sales' | 'reportes-caja';
 
 const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; group?: string }[] = [
-  { id: 'dashboard',  label: 'Mi Sede',    icon: <Building2 size={18} /> },
-  { id: 'users',      label: 'Personal',   icon: <Users size={18} />,       group: 'Gestión' },
-  { id: 'products',   label: 'Productos',  icon: <Package size={18} />,     group: 'Inventario' },
-  { id: 'entries',    label: 'Entradas',   icon: <PackagePlus size={18} />, group: 'Inventario' },
-  { id: 'audits',     label: 'Auditorías', icon: <ClipboardList size={18} />, group: 'Inventario' },
-  { id: 'sales',          label: 'Ventas',          icon: <TrendingUp size={18} />, group: 'Ventas' },
-  { id: 'reportes-caja', label: 'Reportes Caja', icon: <FileText size={18} />,   group: 'Ventas' },
+  { id: 'dashboard',      label: 'Mi Sede',       icon: <Building2 size={18} /> },
+  { id: 'users',          label: 'Personal',      icon: <Users size={18} />,       group: 'Gestión' },
+  { id: 'products',       label: 'Productos',     icon: <Package size={18} />,     group: 'Inventario' },
+  { id: 'entries',        label: 'Entradas',      icon: <PackagePlus size={18} />, group: 'Inventario' },
+  { id: 'sales',          label: 'Ventas',        icon: <TrendingUp size={18} />,  group: 'Ventas' },
+  { id: 'reportes-caja',  label: 'Reportes Caja', icon: <FileText size={18} />,    group: 'Ventas' },
 ];
 
 // ─── KPI strip ───────────────────────────────────────────────────────────────
@@ -303,6 +302,19 @@ const EncargadoPanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [supervisionHoy, setSupervisionHoy] = useState<{ motivo: string } | null>(null);
+
+  // Check for supervision visits scheduled today
+  useEffect(() => {
+    if (!user?.sede?.id) return;
+    const today = new Date().toISOString().split('T')[0];
+    inventoryService.listAudits({ sede_id: user.sede.id, fecha: today })
+      .then(r => {
+        const lista = r.data?.audits ?? [];
+        if (lista.length > 0) setSupervisionHoy({ motivo: lista[0].motivo ?? '' });
+      })
+      .catch(() => {});
+  }, [user?.sede?.id]);
 
   const loadDashboard = useCallback(() => {
     setIsLoading(true);
@@ -398,6 +410,22 @@ const EncargadoPanel: React.FC = () => {
         </header>
 
         <main className="dashboard-content">
+          {/* ── Supervision alert banner ─────────────────────────────── */}
+          {supervisionHoy && activeSection === 'dashboard' && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              background: '#fffbeb', border: '1px solid #f59e0b',
+              borderRadius: 8, padding: '12px 16px', marginBottom: 16,
+              color: '#92400e', fontWeight: 500, fontSize: 14,
+            }}>
+              <AlertTriangle size={18} style={{ color: '#f59e0b', flexShrink: 0 }} />
+              <span>
+                <strong>Supervisión de inventario programada para hoy</strong>
+                {supervisionHoy.motivo && ` — ${supervisionHoy.motivo}`}
+              </span>
+            </div>
+          )}
+
           {activeSection === 'dashboard' && (
             <SedeOverview
               snapshot={snapshot}
@@ -406,10 +434,9 @@ const EncargadoPanel: React.FC = () => {
               onRefresh={loadDashboard}
             />
           )}
-          {activeSection === 'users'    && <UsersList />}
-          {activeSection === 'products' && user?.sede && <ProductsList sedeId={user.sede.id} />}
-          {activeSection === 'audits'   && <AuditView />}
-          {activeSection === 'entries'    && user?.sede && <EncargadoEntradasView sedeId={user.sede.id} />}
+          {activeSection === 'users'         && <UsersList />}
+          {activeSection === 'products'      && user?.sede && <ProductsList sedeId={user.sede.id} />}
+          {activeSection === 'entries'       && user?.sede && <EncargadoEntradasView sedeId={user.sede.id} />}
           {activeSection === 'sales'         && user?.sede && <EncargadoSalesView sedeId={user.sede.id} />}
           {activeSection === 'reportes-caja' && user?.sede && <ReportesCajaView sedeId={user.sede.id} />}
         </main>

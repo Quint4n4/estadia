@@ -262,6 +262,7 @@ export interface AuditoriaInventario {
   sede: number;
   sede_name: string;
   fecha: string;
+  motivo: string;
   status: AuditoriaStatus;
   created_by: number | null;
   created_by_name: string;
@@ -274,6 +275,7 @@ export interface AuditoriaInventario {
 export interface AuditoriaPayload {
   sede: number;
   fecha: string;
+  motivo?: string;
 }
 
 // ── Generic list responses ─────────────────────────────────────────────────

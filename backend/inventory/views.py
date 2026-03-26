@@ -3,9 +3,11 @@ Views for Inventory — Categoria, Subcategoria, MarcaFabricante,
 MarcaMoto, ModeloMoto, Producto (with fitment), Stock,
 EntradaInventario, AuditoriaInventario / AuditoriaItem
 """
+import io
 from django.db import transaction
 from django.db.models import Q, F, Sum, Count, IntegerField
 from django.db.models.functions import Coalesce
+from django.http import FileResponse
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -671,10 +673,13 @@ class AuditoriaListCreateView(APIView):
         qs = AuditoriaInventario.objects.select_related('sede', 'created_by')
         sede_id       = request.query_params.get('sede_id', '').strip()
         status_filter = request.query_params.get('status', '').strip()
+        fecha_filter  = request.query_params.get('fecha', '').strip()
         if sede_id:
             qs = qs.filter(sede_id=sede_id)
         if status_filter:
             qs = qs.filter(status=status_filter)
+        if fecha_filter:
+            qs = qs.filter(fecha=fecha_filter)
         # PERF-006: annotate items_count so the serializer needs 0 extra queries per auditoría
         qs = qs.annotate(items_count=Count('items'))
         result = _paginate(qs, request)
@@ -774,3 +779,90 @@ class AuditoriaFinalizeView(APIView):
         audit.save()
         return Response({'success': True, 'message': 'Auditoría finalizada. Stock ajustado.',
                          'data': AuditoriaInventarioSerializer(audit).data})
+
+
+class SupervisionPDFView(APIView):
+    """Generate and return a stock-snapshot PDF for a supervision visit."""
+
+    def get_permissions(self):
+        from sales.permissions import IsAdministrator
+        return [IsAdministrator()]
+
+    def get(self, request, pk):
+        try:
+            audit = AuditoriaInventario.objects.select_related('sede', 'created_by').get(pk=pk)
+        except AuditoriaInventario.DoesNotExist:
+            return _not_found('Supervisión')
+
+        stocks = (
+            Stock.objects
+            .filter(sede=audit.sede, producto__is_active=True)
+            .select_related('producto__categoria', 'producto__subcategoria')
+            .order_by('producto__categoria__name', 'producto__name')
+        )
+
+        buffer = self._build_pdf(audit, stocks)
+        filename = f'supervision_{audit.sede.name.replace(" ", "_")}_{audit.fecha}.pdf'
+        buffer.seek(0)
+        return FileResponse(buffer, as_attachment=True, filename=filename,
+                            content_type='application/pdf')
+
+    def _build_pdf(self, audit, stocks):
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.units import mm
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+
+        buffer  = io.BytesIO()
+        doc     = SimpleDocTemplate(buffer, pagesize=landscape(A4),
+                                    leftMargin=15*mm, rightMargin=15*mm,
+                                    topMargin=15*mm, bottomMargin=15*mm)
+        styles  = getSampleStyleSheet()
+        PRIMARY = colors.HexColor('#2B4C8C')
+        LIGHT   = colors.HexColor('#EBF0FB')
+
+        title_style = ParagraphStyle('title', parent=styles['Heading1'],
+                                     textColor=PRIMARY, fontSize=16, spaceAfter=4)
+        sub_style   = ParagraphStyle('sub',   parent=styles['Normal'],
+                                     textColor=colors.HexColor('#4A5568'), fontSize=10, spaceAfter=2)
+
+        elements = [
+            Paragraph(f'Supervisión de Inventario — {audit.sede.name}', title_style),
+            Paragraph(f'Fecha de visita: {audit.fecha}', sub_style),
+        ]
+        if audit.motivo:
+            elements.append(Paragraph(f'Motivo: {audit.motivo}', sub_style))
+        elements.append(Spacer(1, 6*mm))
+
+        # Table
+        headers = ['SKU', 'Producto', 'Categoría', 'Stock actual', 'Precio unit.']
+        data    = [headers]
+        for s in stocks:
+            p = s.producto
+            data.append([
+                p.sku,
+                p.name[:55] + ('…' if len(p.name) > 55 else ''),
+                p.categoria.name if p.categoria else '—',
+                str(s.quantity),
+                f'${float(p.price):,.2f}',
+            ])
+
+        col_widths = [45*mm, 100*mm, 55*mm, 28*mm, 30*mm]
+        table = Table(data, colWidths=col_widths, repeatRows=1)
+        table.setStyle(TableStyle([
+            ('BACKGROUND',   (0, 0), (-1, 0),  PRIMARY),
+            ('TEXTCOLOR',    (0, 0), (-1, 0),  colors.white),
+            ('FONTNAME',     (0, 0), (-1, 0),  'Helvetica-Bold'),
+            ('FONTSIZE',     (0, 0), (-1, 0),  9),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, LIGHT]),
+            ('FONTSIZE',     (0, 1), (-1, -1), 8),
+            ('GRID',         (0, 0), (-1, -1), 0.3, colors.HexColor('#CBD5E0')),
+            ('VALIGN',       (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING',   (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING',(0, 0), (-1, -1), 3),
+            ('ALIGN',        (3, 0), (4, -1),  'RIGHT'),
+        ]))
+        elements.append(table)
+        doc.build(elements)
+        return buffer

@@ -81,6 +81,7 @@ export interface SedeSnapshot {
   on_shift_users: { id: number; name: string; role: string }[];
   low_stock_count: number;
   out_of_stock_count: number;
+  total_stock_quantity: number;
 }
 
 /** @deprecated use SedeSnapshot */
