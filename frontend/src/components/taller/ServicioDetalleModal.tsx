@@ -257,7 +257,8 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
   const handleCopiarLink = () => {
     const token = (servicio as any)?.tracking_token;
     if (!token) return;
-    const url = `${window.location.protocol}//${window.location.hostname}:5174/seguimiento/${token}`;
+    const clienteUrl = import.meta.env.VITE_CLIENTE_URL ?? `${window.location.protocol}//${window.location.hostname}:5174`;
+    const url = `${clienteUrl}/seguimiento/${token}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopiado(true);
       setTimeout(() => setCopiado(false), 2500);
@@ -988,7 +989,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
                       fontSize: 11, color: '#2c5282', fontFamily: 'monospace',
                       wordBreak: 'break-all' as const, lineHeight: 1.5,
                     }}>
-                      {`${window.location.protocol}//${window.location.hostname}:5174/seguimiento/${(servicio as any).tracking_token}`}
+                      {`${import.meta.env.VITE_CLIENTE_URL ?? `${window.location.protocol}//${window.location.hostname}:5174`}/seguimiento/${(servicio as any).tracking_token}`}
                     </div>
 
                     {/* Botón copiar */}
