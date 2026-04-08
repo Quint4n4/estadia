@@ -14,10 +14,15 @@ urlpatterns = [
     path('servicios/archivar/',     views.ArchivarOrdenesView.as_view(),     name='archivar-ordenes'),
     path('servicios/historial/',    views.HistorialServiciosView.as_view(),  name='historial-servicios'),
     path('servicios/reporte/',      views.ReporteTallerView.as_view(),       name='reporte-taller'),
+    path('servicios/reporte-pdf/',  views.ReporteTallerPDFView.as_view(),    name='reporte-taller-pdf'),
     path('servicios/<int:pk>/',     views.ServicioDetailView.as_view(),      name='servicio-detail'),
 
     # Imágenes de evidencia
     path('servicios/<int:pk>/imagenes/', views.ServicioImagenesView.as_view(), name='servicio-imagenes'),
+
+    # Ítems del servicio (agregar/eliminar durante EN_DIAGNOSTICO)
+    path('servicios/<int:pk>/items/', views.ServicioItemsView.as_view(), name='servicio-items'),
+    path('servicios/<int:pk>/items/<int:item_pk>/', views.ServicioItemsView.as_view(), name='servicio-item-delete'),
 
     # Transiciones de estado
     path('servicios/<int:pk>/asignar/',   views.AsignarMecanicoView.as_view(),         name='servicio-asignar'),

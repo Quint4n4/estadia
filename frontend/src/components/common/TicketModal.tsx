@@ -65,6 +65,17 @@ function buildTicketHtml(venta: Venta, config: ConfiguracionFiscal | null): stri
          <span style="color:#c05621">−${fmt(venta.descuento)}</span>
        </div>` : '';
 
+  const ivaTasa = config?.iva_tasa ?? 16;
+  const ivaHtml = `
+    <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+      <span style="color:#718096">Subtotal sin IVA:</span>
+      <span>${fmt(venta.subtotal_sin_iva)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+      <span style="color:#718096">IVA (${ivaTasa}%):</span>
+      <span>${fmt(venta.iva_monto)}</span>
+    </div>`;
+
   const cambioHtml = isEfectivo
     ? `<div style="display:flex;justify-content:space-between;margin-bottom:3px">
          <span style="color:#718096">Pagado:</span>
@@ -149,6 +160,7 @@ function buildTicketHtml(venta: Venta, config: ConfiguracionFiscal | null): stri
       <span>${fmt(venta.subtotal)}</span>
     </div>
     ${descHtml}
+    ${ivaHtml}
     <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:6px;margin-top:4px">
       <span style="font-weight:700;font-size:14px">TOTAL:</span>
       <span style="font-weight:700;font-size:14px">${fmt(venta.total)}</span>
@@ -315,6 +327,14 @@ const TicketModal: React.FC<Props> = ({ venta, onClose }) => {
                 <span style={{ color: '#c05621' }}>−{fmt(venta.descuento)}</span>
               </div>
             )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+              <span style={{ color: '#718096' }}>Subtotal sin IVA:</span>
+              <span>{fmt(venta.subtotal_sin_iva)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+              <span style={{ color: '#718096' }}>IVA ({config?.iva_tasa ?? 16}%):</span>
+              <span>{fmt(venta.iva_monto)}</span>
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e2e8f0', paddingTop: 6, marginTop: 4 }}>
               <span style={{ fontWeight: 700, fontSize: 14 }}>TOTAL:</span>
               <span style={{ fontWeight: 700, fontSize: 14 }}>{fmt(venta.total)}</span>

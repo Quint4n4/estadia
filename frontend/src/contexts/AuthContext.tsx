@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import type { User, LoginCredentials } from '../types/auth.types';
 import { authService } from '../api/auth.service';
 import { tokenStore } from '../utils/tokenStore';
@@ -57,10 +58,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const { access, refresh } = response.data;
         tokenStore.setAccess(access);
         if (refresh) tokenStore.setRefresh(refresh);
-      } catch {
-        // Refresh token expired or revoked — clear session
-        tokenStore.clear();
-        setUser(null);
+      } catch (err: unknown) {
+        const isNetworkError = axios.isAxiosError(err) && !err.response;
+
+        if (isNetworkError) {
+          // Sin conexión: mantener la sesión local restaurada optimistamente.
+          // El interceptor de axios hará refresh automático cuando vuelva la red.
+        } else {
+          // Token expirado, revocado o error inesperado → forzar re-login
+          tokenStore.clear();
+          setUser(null);
+        }
       } finally {
         setIsLoading(false);
       }

@@ -58,6 +58,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # servir estáticos en producción
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',  # CORS debe ir antes de CommonMiddleware
     'django.middleware.common.CommonMiddleware',
@@ -89,18 +90,22 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 
 # Database - PostgreSQL
+# Soporta DATABASE_URL (Railway/Heroku) o variables individuales (desarrollo local)
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': env('DB_NAME'),
-        'USER': env('DB_USER'),
-        'PASSWORD': env('DB_PASSWORD'),
-        'HOST': env('DB_HOST'),
-        'PORT': env('DB_PORT'),
+if env('DATABASE_URL', default=None):
+    DATABASES = {'default': env.db('DATABASE_URL')}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME':     env('DB_NAME'),
+            'USER':     env('DB_USER'),
+            'PASSWORD': env('DB_PASSWORD'),
+            'HOST':     env('DB_HOST'),
+            'PORT':     env('DB_PORT'),
+        }
     }
-}
 
 
 # Custom User Model
@@ -142,6 +147,15 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# ── Seguridad en producción ───────────────────────────────────────────────────
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT      = True
+    SESSION_COOKIE_SECURE    = True
+    CSRF_COOKIE_SECURE       = True
 
 # Media files — Cloudinary cloud storage
 CLOUDINARY_STORAGE = {

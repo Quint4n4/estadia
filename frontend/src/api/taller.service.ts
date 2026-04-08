@@ -141,9 +141,39 @@ export const tallerService = {
     return apiClient.get(`${BASE}/mis-servicios/${id}/`).then(r => r.data);
   },
 
+  // ── Ítems de diagnóstico ──────────────────────────────────────────────────
+
+  agregarItemDiagnostico(
+    servicioId: number,
+    payload: { tipo: string; descripcion: string; producto?: number | null; cantidad: number; precio_unitario: string }
+  ): Promise<TallerApiResponse<ServicioMotoDetail>> {
+    return apiClient.post(`${BASE}/servicios/${servicioId}/items/`, payload).then(r => r.data);
+  },
+
+  eliminarItemDiagnostico(servicioId: number, itemId: number): Promise<TallerApiResponse<ServicioMotoDetail>> {
+    return apiClient.delete(`${BASE}/servicios/${servicioId}/items/${itemId}/`).then(r => r.data);
+  },
+
   // ── Reporte de Taller ──────────────────────────────────────────────────────
 
   getReporteTaller(params: ReporteTallerParams): Promise<TallerApiResponse<ReporteTallerData>> {
     return apiClient.get(`${BASE}/servicios/reporte/`, { params }).then(r => r.data);
+  },
+
+  getReporteTallerPDF(params: HistorialParams): Promise<void> {
+    return apiClient
+      .get(`${BASE}/servicios/reporte-pdf/`, { params, responseType: 'blob' })
+      .then(response => {
+        const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+        const a = document.createElement('a');
+        a.href = url;
+        const disposition: string = response.headers['content-disposition'] ?? '';
+        const match = disposition.match(/filename="([^"]+)"/);
+        a.download = match ? match[1] : 'taller_reporte.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      });
   },
 };

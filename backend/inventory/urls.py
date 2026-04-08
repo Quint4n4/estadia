@@ -11,7 +11,7 @@ from .views import (
     ProductoListCreateView, ProductoDetailView,
     ProductoImageUploadView,
     CompatibilidadListCreateView, CompatibilidadDetailView,
-    StockBySedeView, StockUpdateView,
+    StockBySedeView, StockUpdateView, StockBajoView,
     EntradaInventarioListCreateView,
     AuditoriaListCreateView, AuditoriaDetailView,
     AuditoriaItemUpdateView, AuditoriaFinalizeView,
@@ -51,6 +51,7 @@ urlpatterns = [
     # ── Stock ─────────────────────────────────────────────────────────────────
     path('stock/',           StockBySedeView.as_view(),   name='stock_by_sede'),
     path('stock/<int:pk>/', StockUpdateView.as_view(),    name='stock_update'),
+    path('stock-bajo/',     StockBajoView.as_view(),      name='stock_bajo'),
 
     # ── Inventory entries ─────────────────────────────────────────────────────
     path('entries/',         EntradaInventarioListCreateView.as_view(), name='entry_list_create'),

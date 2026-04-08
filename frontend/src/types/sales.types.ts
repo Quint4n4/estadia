@@ -55,15 +55,18 @@ export interface Venta {
   cajero:       number;
   cajero_name:  string;
   items:        VentaItem[];
-  subtotal:     string;
-  descuento:    string;
-  total:        string;
-  metodo_pago:  MetodoPago;
+  subtotal:         string;
+  descuento:        string;
+  total:            string;
+  subtotal_sin_iva: string;
+  iva_monto:        string;
+  metodo_pago:      MetodoPago;
   monto_pagado: string;
   cambio:       string;
   status:       VentaStatus;
   notas:        string;
   created_at:   string;
+  servicio_id:  number | null;
 }
 
 export interface VentaListResponse {
@@ -145,4 +148,28 @@ export interface SedeResumenVentas {
   devoluciones_mes:       number;
   monto_devoluciones_mes: string;
   cajas_abiertas:         CajaAbiertaInfo[];
+}
+
+// ── Dashboard Analytics ───────────────────────────────────────────────────────
+
+export interface TopItem {
+  nombre:   string;
+  sku?:     string;
+  cantidad: number;
+  monto:    string;
+}
+
+export interface TopItemsData {
+  productos: TopItem[];
+  servicios: TopItem[];
+}
+
+export interface StockBajoItem {
+  sku:      string;
+  nombre:   string;
+  cantidad: number;
+  minimo:   number;
+  sede:     string;
+  sede_id:  number;
+  alerta:   'SIN_STOCK' | 'BAJO';
 }

@@ -82,6 +82,7 @@ export interface SedeSnapshot {
   low_stock_count: number;
   out_of_stock_count: number;
   total_stock_quantity: number;
+  total_clientes: number;
 }
 
 /** @deprecated use SedeSnapshot */

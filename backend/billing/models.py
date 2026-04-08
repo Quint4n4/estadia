@@ -3,6 +3,7 @@ Billing Models — MotoQFox
 ==========================
 ConfiguracionFiscalSede — commercial/fiscal info per sede used on printed tickets.
 """
+from decimal import Decimal
 from django.db import models
 
 
@@ -25,6 +26,12 @@ class ConfiguracionFiscalSede(models.Model):
     leyenda_ticket    = models.TextField(
         default='Gracias por su compra. Este documento no es una factura fiscal.',
         verbose_name='Leyenda del ticket'
+    )
+    iva_tasa          = models.DecimalField(
+        max_digits=5, decimal_places=2,
+        default=Decimal('16.00'),
+        verbose_name='Tasa de IVA (%)',
+        help_text='Porcentaje de IVA aplicado en los tickets (ej. 16.00 para 16%)'
     )
     created_at        = models.DateTimeField(auto_now_add=True)
     updated_at        = models.DateTimeField(auto_now=True)

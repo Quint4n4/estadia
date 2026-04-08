@@ -12,6 +12,9 @@ import type { ClienteBusqueda } from '../../types/customers.types';
 import type { CatalogoServicioList } from '../../types/catalogo-servicios.types';
 import type { Producto } from '../../types/inventory.types';
 import { MOTOS_MEXICO } from '../../constants/motosCatalog';
+import { useTallerOffline } from '../../hooks/useTallerOffline';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { db } from '../../db/localDB';
 
 type Step = 'BUSCAR' | 'SELECCIONAR_MOTO' | 'NUEVA_MOTO' | 'REGISTRAR_CLIENTE' | 'SERVICIO';
 
@@ -96,6 +99,9 @@ const footerRow: React.CSSProperties = {
 
 /* ── Componente ───────────────────────────────────────────────────────────── */
 const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => {
+  const { crearServicio } = useTallerOffline();
+  const { isOffline } = useNetworkStatus();
+
   const [step, setStep] = useState<Step>('BUSCAR');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -141,6 +147,7 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
   const [notasInternas,     setNotasInternas]     = useState('');
   const [pagarAhora,        setPagarAhora]        = useState(false);
   const [metodo,            setMetodo]            = useState<MetodoPago>('EFECTIVO');
+  const [montoPagado,       setMontoPagado]       = useState('');
   const [esReparacion,      setEsReparacion]      = useState(false);
 
   /* ── Estado: checklist e imágenes ── */
@@ -172,6 +179,19 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
       .finally(() => setLoadingCatalogo(false));
   }, [step]);
 
+  /* ── Auto-rellenar monto cuando el método no es efectivo ── */
+  useEffect(() => {
+    if (!pagarAhora) return;
+    if (metodo === 'TARJETA' || metodo === 'TRANSFERENCIA') {
+      const totalRef = refacciones.reduce(
+        (sum, r) => sum + (parseFloat(r.precio_unitario) || 0) * r.cantidad, 0
+      );
+      const total = (parseFloat(manoDeObra) || 0) + totalRef;
+      setMontoPagado(total.toFixed(2));
+    }
+    // Para EFECTIVO dejamos que el cajero ingrese el monto manualmente
+  }, [metodo, pagarAhora]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ── Navegar entre pasos ── */
   const goTo = (s: Step) => { setError(''); setStep(s); };
 
@@ -194,7 +214,22 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
         setCargandoMotos(true);
         try {
           const motosRes = await tallerService.listMotos({ cliente_id: cliente.id });
-          setMotosCliente(motosRes.data ?? []);
+          const motos = motosRes.data ?? [];
+          setMotosCliente(motos);
+          // Cachear para uso offline
+          const ahora = new Date().toISOString();
+          await db.clientes_taller.put({
+            id: cliente.id, nombre: cliente.nombre,
+            email: cliente.email, telefono: cliente.telefono, cachedAt: ahora,
+          });
+          if (motos.length > 0) {
+            await db.motos_cliente.bulkPut(motos.map(m => ({
+              id: m.id, clienteId: cliente.id,
+              marca: m.marca, modelo: m.modelo, anio: Number(m.anio),
+              numero_serie: m.numero_serie, placa: m.placa ?? '', color: m.color ?? '',
+              clienteNombre: cliente.nombre, cachedAt: ahora,
+            })));
+          }
         } finally {
           setCargandoMotos(false);
         }
@@ -202,7 +237,21 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
         setClienteNoEncontrado(true);
       }
     } catch {
-      setError('Error al buscar el cliente. Intenta de nuevo.');
+      // Sin red: buscar en cache local
+      const clienteLocal = await db.clientes_taller
+        .where('telefono').equals(telefono.trim()).first();
+      if (clienteLocal) {
+        setClienteEncontrado({
+          id: clienteLocal.id, nombre: clienteLocal.nombre,
+          email: clienteLocal.email, telefono: clienteLocal.telefono,
+          foto_url: '', puntos: 0, qr_token: '',
+        });
+        const motosLocales = await db.motos_cliente
+          .where('clienteId').equals(clienteLocal.id).toArray();
+        setMotosCliente(motosLocales as unknown as MotoCliente[]);
+      } else {
+        setError('Sin conexión. El cliente no está en el cache local. Búscalo cuando haya internet.');
+      }
     } finally {
       setBuscando(false);
     }
@@ -227,6 +276,7 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
         email:      regEmail.trim(),
         telefono:   telefono.trim(),
         password:   `MotoQFox@${Math.random().toString(36).slice(2, 10)}`,
+        sede_id:    sedeId,
       });
       setClienteRegistradoId(res.data.profile.id);
       goTo('NUEVA_MOTO');
@@ -325,6 +375,17 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
       setError('La descripción del problema es requerida para reparaciones.');
       return;
     }
+    if (pagarAhora) {
+      const monto = parseFloat(montoPagado);
+      if (!montoPagado || isNaN(monto) || monto <= 0) {
+        setError('Ingresa el monto recibido del cliente.');
+        return;
+      }
+      if (monto < totalGeneral) {
+        setError(`El monto recibido ($${monto.toFixed(2)}) es menor al total ($${totalGeneral.toFixed(2)}).`);
+        return;
+      }
+    }
     setError('');
     setLoading(true);
 
@@ -343,6 +404,7 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
       notas_internas:         notasInternas.trim(),
       pago_status:            pagarAhora ? 'PAGADO' : 'PENDIENTE_PAGO',
       metodo_pago:            pagarAhora ? metodo : undefined,
+      monto_pagado:           pagarAhora ? montoPagado : undefined,
       items: refacciones.map(r => ({
         tipo: 'REFACCION' as const,
         producto: r.producto.id,
@@ -367,8 +429,26 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
     }
 
     try {
-      const res = await tallerService.createServicio(payload);
-      // Subir imágenes si hay
+      const motoDisplay = motoSeleccionadaId
+        ? motosCliente.find(m => m.id === motoSeleccionadaId)
+            ? `${motosCliente.find(m => m.id === motoSeleccionadaId)!.marca} ${motosCliente.find(m => m.id === motoSeleccionadaId)!.modelo}`
+            : undefined
+        : marca && modelo ? `${marca} ${modelo}` : undefined;
+
+      const res = await crearServicio(
+        payload, sedeId,
+        clienteEncontrado?.nombre,
+        motoDisplay,
+      );
+
+      if ((res as any).offline) {
+        // Servicio guardado offline — imágenes no se pueden subir sin conexión
+        onCreated();
+        onClose();
+        return;
+      }
+
+      // Subir imágenes si hay (solo online)
       if (imagenes.length > 0 && res?.data?.id) {
         setSubiendo(true);
         try {
@@ -426,13 +506,17 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
     (sum, r) => sum + (parseFloat(r.precio_unitario) || 0) * r.cantidad, 0
   );
   const totalGeneral = (parseFloat(manoDeObra) || 0) + totalRefacciones;
+  const montoPagadoNum = parseFloat(montoPagado) || 0;
+  const cambioCalculado = pagarAhora && metodo === 'EFECTIVO' && montoPagadoNum > 0
+    ? montoPagadoNum - totalGeneral
+    : null;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
         className="modal-box"
         onClick={e => e.stopPropagation()}
-        style={{ maxWidth: 580, maxHeight: '92vh', overflowY: 'auto', padding: 0 }}
+        style={{ maxWidth: 680, maxHeight: '92vh', overflowY: 'auto', padding: 0 }}
       >
         {/* ── Header ── */}
         <div style={{
@@ -470,19 +554,49 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
             >✕</button>
           </div>
 
-          {/* Barra de progreso: 3 segmentos */}
-          <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
-            {[0, 1, 2].map(i => (
-              <div
-                key={i}
-                style={{
-                  flex: 1, height: 3, borderRadius: 2,
-                  background: i < progressIdx ? '#68d391' : i === progressIdx ? '#fff' : 'rgba(255,255,255,0.2)',
-                  transition: 'background 0.2s',
-                }}
-              />
-            ))}
-          </div>
+          {/* Barra de progreso: 3 pasos numerados */}
+          {(() => {
+            const steps = ['Cliente', 'Moto', 'Servicio'];
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', marginTop: 18, gap: 0 }}>
+                {steps.map((label, i) => {
+                  const done    = i < progressIdx;
+                  const active  = i === progressIdx;
+                  return (
+                    <React.Fragment key={i}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                        <div style={{
+                          width: 28, height: 28, borderRadius: '50%',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontWeight: 700, fontSize: 12,
+                          background: done ? '#68d391' : active ? '#fff' : 'rgba(255,255,255,0.18)',
+                          color:      done ? '#276749' : active ? '#1a1a2e' : 'rgba(255,255,255,0.5)',
+                          transition: 'all 0.2s',
+                          border:     active ? '2px solid #fff' : 'none',
+                        }}>
+                          {done ? '✓' : i + 1}
+                        </div>
+                        <span style={{
+                          fontSize: 10, fontWeight: active ? 700 : 400,
+                          color: done ? '#9ae6b4' : active ? '#fff' : 'rgba(255,255,255,0.45)',
+                          letterSpacing: '0.03em',
+                        }}>
+                          {label}
+                        </span>
+                      </div>
+                      {i < steps.length - 1 && (
+                        <div style={{
+                          flex: 1, height: 2, marginBottom: 16,
+                          background: i < progressIdx ? '#68d391' : 'rgba(255,255,255,0.2)',
+                          transition: 'background 0.2s',
+                        }} />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
         {/* ── Contenido ── */}
@@ -918,23 +1032,36 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
                     />
                   </div>
                   <div>
-                    <label className="form-label">
-                      Número de serie *
+                    <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Número de serie *</span>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600,
+                        color: numeroSerie.length >= 14 ? '#38a169' : '#a0aec0',
+                      }}>
+                        {numeroSerie.length}/17
+                      </span>
                     </label>
                     <input
                       className="form-input"
                       value={numeroSerie}
+                      maxLength={17}
                       onChange={e => setNumeroSerie(e.target.value.toUpperCase())}
                       placeholder="Ej: MD2B3A30XRM123456"
                     />
                   </div>
                   <div>
-                    <label className="form-label">
-                      Placa <span style={{ fontWeight: 400, color: '#a0aec0', fontSize: 11 }}>(opcional)</span>
+                    <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Placa <span style={{ fontWeight: 400, color: '#a0aec0', fontSize: 11 }}>(opcional)</span></span>
+                      {placa.length > 0 && (
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#a0aec0' }}>
+                          {placa.length}/10
+                        </span>
+                      )}
                     </label>
                     <input
                       className="form-input"
                       value={placa}
+                      maxLength={10}
                       onChange={e => setPlaca(e.target.value.toUpperCase())}
                       placeholder="ABC-123"
                     />
@@ -1053,7 +1180,8 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
                                 onClick={() => {
                                   setServicioSeleccionado(s);
                                   setDescripcion('');
-                                  setEsReparacion(false);
+                                  // Auto-detectar si es reparación por la categoría del servicio
+                                  setEsReparacion(s.categoria.toLowerCase().includes('reparac'));
                                   const precio = s.precio_base ? parseFloat(s.precio_base) : 0;
                                   if (precio > 0) {
                                     setManoDeObra(precio.toFixed(2));
@@ -1090,29 +1218,16 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
                   )}
                 </div>
 
-                {/* Checkbox: ¿es reparación? — visible solo cuando hay servicio seleccionado */}
+                {/* Indicador de flujo (solo lectura, se detecta automáticamente por categoría) */}
                 {servicioSeleccionado && (
                   <div style={{
-                    marginBottom: 14,
-                    padding: '12px 14px',
-                    background: esReparacion ? '#ebf8ff' : '#f7fafc',
-                    border: `1px solid ${esReparacion ? '#bee3f8' : '#e2e8f0'}`,
-                    borderRadius: 8,
-                    transition: 'all 0.15s',
+                    marginBottom: 14, padding: '8px 12px', borderRadius: 8,
+                    background: esReparacion ? '#ebf8ff' : '#f0fff4',
+                    border: `1px solid ${esReparacion ? '#bee3f8' : '#9ae6b4'}`,
+                    fontSize: 12, color: esReparacion ? '#2b6cb0' : '#276749', fontWeight: 600,
+                    display: 'flex', alignItems: 'center', gap: 6,
                   }}>
-                    <label style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      cursor: 'pointer', fontSize: 14,
-                      color: esReparacion ? '#2b6cb0' : '#2d3748',
-                    }}>
-                      <input
-                        type="checkbox"
-                        checked={esReparacion}
-                        onChange={e => setEsReparacion(e.target.checked)}
-                        style={{ width: 17, height: 17, accentColor: '#3182ce', cursor: 'pointer', flexShrink: 0 }}
-                      />
-                      <span>¿Es reparación?</span>
-                    </label>
+                    {esReparacion ? '🔍 Reparación — pasará a diagnóstico antes de iniciar' : '⚙️ Mantenimiento — pasará directo a taller'}
                   </div>
                 )}
 
@@ -1502,6 +1617,15 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
                     >
                       <ImageIcon size={16} /> Agregar fotos de la moto al recibirla
                     </button>
+                    {isOffline && imagenes.length > 0 && (
+                      <p style={{
+                        fontSize: 12, color: '#975a16', background: '#fffbeb',
+                        border: '1px solid #fbd38d', borderRadius: 6,
+                        padding: '6px 10px', marginTop: 6,
+                      }}>
+                        Sin conexión: las imágenes no se subirán. El servicio se creará sin fotos.
+                      </p>
+                    )}
                   </>
                 )}
               </div>
@@ -1532,30 +1656,154 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
                   <span>El cliente <strong>paga por adelantado</strong> en este momento</span>
                 </label>
 
-                {pagarAhora && (
-                  <div style={{ marginTop: 14 }}>
-                    <label className="form-label">Método de pago</label>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      {METODOS_PAGO.map(m => (
-                        <button
-                          key={m.value}
-                          type="button"
-                          onClick={() => setMetodo(m.value)}
-                          style={{
-                            flex: 1, padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
-                            border:       metodo === m.value ? '2px solid #38a169' : '2px solid #e2e8f0',
-                            background:   metodo === m.value ? '#f0fff4' : '#fff',
-                            color:        metodo === m.value ? '#276749' : '#718096',
-                            fontWeight:   metodo === m.value ? 700 : 500,
-                            fontSize: 13, transition: 'all 0.15s',
-                          }}
-                        >
-                          {m.label}
-                        </button>
-                      ))}
+                {pagarAhora && (() => {
+                  const fmtMXN = (n: number) =>
+                    n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+                  const servicioNombre = esReparacion
+                    ? (descripcion.trim() || 'Reparación a diagnóstico')
+                    : (servicioSeleccionado?.nombre ?? 'Servicio de taller');
+                  const montoInsuficiente = metodo === 'EFECTIVO' && montoPagado !== '' && montoPagadoNum < totalGeneral;
+
+                  return (
+                    <div style={{ marginTop: 16 }}>
+                      {/* ── Lista de ítems (estilo PaymentModal de caja) ── */}
+                      <div className="payment-items-list">
+                        {/* Mano de obra */}
+                        <div className="payment-item-row">
+                          <span style={{ flex: 1 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#718096',
+                              textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: 6 }}>
+                              Servicio
+                            </span>
+                            {servicioNombre}
+                          </span>
+                          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {fmtMXN(parseFloat(manoDeObra) || 0)}
+                          </span>
+                        </div>
+
+                        {/* Refacciones */}
+                        {refacciones.map(r => (
+                          <div key={r.producto.id} className="payment-item-row">
+                            <span style={{ flex: 1 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: '#718096',
+                                textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: 6 }}>
+                                Refacción
+                              </span>
+                              {r.producto.name}
+                              {r.cantidad > 1 && (
+                                <span style={{ color: '#a0aec0', fontSize: 12, marginLeft: 4 }}>
+                                  × {r.cantidad}
+                                </span>
+                              )}
+                            </span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {fmtMXN((parseFloat(r.precio_unitario) || 0) * r.cantidad)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <hr className="payment-divider" />
+
+                      {/* ── Resumen de totales ── */}
+                      {refacciones.length > 0 && (
+                        <div className="payment-summary-row">
+                          <span>Mano de obra</span>
+                          <span>{fmtMXN(parseFloat(manoDeObra) || 0)}</span>
+                        </div>
+                      )}
+                      {refacciones.length > 0 && (
+                        <div className="payment-summary-row">
+                          <span>Refacciones</span>
+                          <span>{fmtMXN(totalRefacciones)}</span>
+                        </div>
+                      )}
+                      <div className="payment-summary-row payment-summary-row--total">
+                        <span>Total</span>
+                        <span>{fmtMXN(totalGeneral)}</span>
+                      </div>
+
+                      <hr className="payment-divider" />
+
+                      {/* ── Método de pago ── */}
+                      <div style={{ marginBottom: 12 }}>
+                        <label className="form-label">Método de pago</label>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          {METODOS_PAGO.map(m => (
+                            <button
+                              key={m.value}
+                              type="button"
+                              onClick={() => setMetodo(m.value)}
+                              style={{
+                                flex: 1, padding: '9px 12px', borderRadius: 8, cursor: 'pointer',
+                                border:     metodo === m.value ? '2px solid #38a169' : '2px solid #e2e8f0',
+                                background: metodo === m.value ? '#f0fff4' : '#fff',
+                                color:      metodo === m.value ? '#276749' : '#718096',
+                                fontWeight: metodo === m.value ? 700 : 500,
+                                fontSize: 13, transition: 'all 0.15s',
+                              }}
+                            >
+                              {m.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* ── Efectivo: monto recibido + cambio ── */}
+                      {metodo === 'EFECTIVO' ? (
+                        <>
+                          <div className="payment-summary-row" style={{ alignItems: 'center', gap: 10 }}>
+                            <span style={{ flexShrink: 0 }}>Monto recibido</span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min={0}
+                              step="0.01"
+                              value={montoPagado}
+                              onChange={e => setMontoPagado(e.target.value)}
+                              placeholder={`Mín. ${fmtMXN(totalGeneral)}`}
+                              style={{
+                                textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                                border: `1px solid ${montoInsuficiente ? '#fc8181' : '#e2e8f0'}`,
+                                borderRadius: 6, padding: '5px 10px', fontSize: 14,
+                                width: 130, background: '#fff', outline: 'none',
+                                color: montoInsuficiente ? '#c53030' : '#2d3748',
+                              }}
+                            />
+                          </div>
+
+                          {montoPagado !== '' && (
+                            montoInsuficiente ? (
+                              <p style={{
+                                margin: '6px 0', padding: '6px 10px',
+                                background: '#fff5f5', border: '1px solid #fc8181',
+                                borderRadius: 6, color: '#c53030', fontSize: 12,
+                              }}>
+                                Monto insuficiente. Debe ser ≥ {fmtMXN(totalGeneral)}
+                              </p>
+                            ) : (
+                              <div className="payment-summary-row" style={{ color: '#276749' }}>
+                                <span style={{ fontWeight: 600 }}>Cambio</span>
+                                <span style={{ fontWeight: 700, fontSize: 16 }}>
+                                  {fmtMXN(cambioCalculado ?? 0)}
+                                </span>
+                              </div>
+                            )
+                          )}
+                        </>
+                      ) : (
+                        /* Tarjeta / Transferencia: pago exacto */
+                        <div className="payment-summary-row">
+                          <span>Monto a cobrar</span>
+                          <span style={{ fontWeight: 600, color: '#2b6cb0' }}>
+                            {fmtMXN(totalGeneral)} <span style={{ fontSize: 11, color: '#a0aec0' }}>(exacto)</span>
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               <div style={footerRow}>

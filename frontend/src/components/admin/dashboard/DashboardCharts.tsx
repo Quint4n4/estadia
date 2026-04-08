@@ -121,7 +121,7 @@ const DashboardCharts: React.FC<Props> = ({ sedes, resumen }) => {
                 width={52}
               />
               <Tooltip
-                formatter={(v: number) => [`${fmt(v)}`, 'Ingresos']}
+                formatter={(v: number | undefined) => [`${fmt(v ?? 0)}`, 'Ingresos']}
                 contentStyle={{
                   background: 'var(--color-bg-card)',
                   border: '1px solid var(--color-border)',

@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from inventory.models import Stock
-from .models import Venta, CodigoApertura, AperturaCaja, ReporteCaja
+from .models import Venta, VentaItem, CodigoApertura, AperturaCaja, ReporteCaja
 from .serializers import VentaSerializer, VentaCreateSerializer, AperturaCajaSerializer, ReporteCajaSerializer
 from .permissions import IsCajeroOrAbove, IsEncargadoOrAbove, IsAdministrator
 
@@ -71,7 +71,7 @@ class VentaListCreateView(APIView):
         return [IsAuthenticated()]
 
     def get(self, request):
-        qs = Venta.objects.select_related('sede', 'cajero').prefetch_related('items__producto')
+        qs = Venta.objects.select_related('sede', 'cajero').prefetch_related('items__producto', 'servicios_taller')
 
         # SECURITY: filter by sede based on role — only ADMINISTRATOR sees all sedes
         user = request.user
@@ -613,6 +613,81 @@ class ReportesView(APIView):
                 'monto_cancelaciones':   str(dev_agg['total'] or 0),
             },
         }})
+
+
+# ─── Top Items (pie chart data) ───────────────────────────────────────────────
+
+class TopItemsView(APIView):
+    """
+    GET /api/sales/top-items/
+    Devuelve los productos y servicios más vendidos en un rango de fechas.
+    Params: sede_id (opcional), dias (default=30), fecha_desde, fecha_hasta
+    """
+    permission_classes = [IsEncargadoOrAbove]
+
+    def get(self, request):
+        from django.utils.dateparse import parse_date
+        from .models import VentaItem
+
+        sede_id     = request.query_params.get('sede_id')
+        dias        = int(request.query_params.get('dias', 30))
+        fecha_desde = request.query_params.get('fecha_desde')
+        fecha_hasta = request.query_params.get('fecha_hasta')
+
+        today = timezone.localdate()
+        if fecha_desde and fecha_hasta:
+            desde = parse_date(fecha_desde) or (today - timedelta(days=dias))
+            hasta = parse_date(fecha_hasta) or today
+        else:
+            hasta = today
+            desde = today - timedelta(days=dias)
+
+        qs_ventas = Venta.objects.filter(
+            status='COMPLETADA',
+            created_at__date__gte=desde,
+            created_at__date__lte=hasta,
+        )
+        if sede_id:
+            qs_ventas = qs_ventas.filter(sede_id=sede_id)
+
+        # Top 8 productos (tipo='PRODUCTO')
+        top_productos = (
+            VentaItem.objects.filter(venta__in=qs_ventas, tipo='PRODUCTO')
+            .values('producto__name', 'producto__sku')
+            .annotate(cantidad=Sum('quantity'), monto=Sum('subtotal'))
+            .order_by('-cantidad')[:8]
+        )
+
+        # Top 8 servicios (tipo='SERVICIO')
+        top_servicios = (
+            VentaItem.objects.filter(venta__in=qs_ventas, tipo='SERVICIO')
+            .values('catalogo_servicio__nombre')
+            .annotate(cantidad=Sum('quantity'), monto=Sum('subtotal'))
+            .order_by('-cantidad')[:8]
+        )
+
+        return Response({
+            'success': True,
+            'data': {
+                'productos': [
+                    {
+                        'nombre':   r['producto__name'] or '(sin nombre)',
+                        'sku':      r['producto__sku'] or '',
+                        'cantidad': r['cantidad'] or 0,
+                        'monto':    str(r['monto'] or 0),
+                    }
+                    for r in top_productos
+                ],
+                'servicios': [
+                    {
+                        'nombre':   r['catalogo_servicio__nombre'] or '(sin nombre)',
+                        'cantidad': r['cantidad'] or 0,
+                        'monto':    str(r['monto'] or 0),
+                    }
+                    for r in top_servicios
+                ],
+            }
+        })
 
 
 # ─── Reportes de Caja ──────────────────────────────────────────────────────────

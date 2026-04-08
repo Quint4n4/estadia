@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { tallerService } from '../../api/taller.service';
 import type {
   ReporteTallerData,
-  ReporteTallerKpis,
   ReportePeriodoItem,
   ReporteMecanicoItem,
   ReporteMetodoPagoItem,

@@ -94,6 +94,12 @@ TABLES=(
   "taller_servicio_items"
   "taller_solicitudes_extra"
 
+  # Catálogo de servicios del taller
+  "catalogo_servicios_categoriaservicio"
+  "catalogo_servicios_catalogoservicio"
+  "catalogo_servicios_catalogoserviciorefaccion"
+  "catalogo_servicios_precioserviciosede"
+
   # Facturación
   "billing_config_fiscal_sede"
 )

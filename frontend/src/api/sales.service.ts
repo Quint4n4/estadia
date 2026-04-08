@@ -9,6 +9,7 @@ import type {
   SedeResumenVentas,
   ReportesData,
   TendenciaPoint,
+  TopItemsData,
 } from '../types/sales.types';
 
 const BASE = '/sales';
@@ -74,5 +75,9 @@ export const salesService = {
 
   getTendencia(dias = 7): Promise<{ success: boolean; data: TendenciaPoint[] }> {
     return apiClient.get(`${BASE}/tendencia/?dias=${dias}`).then(r => r.data);
+  },
+
+  getTopItems(params?: { sede_id?: number; dias?: number; fecha_desde?: string; fecha_hasta?: string }): Promise<{ success: boolean; data: TopItemsData }> {
+    return apiClient.get(`${BASE}/top-items/`, { params }).then(r => r.data);
   },
 };

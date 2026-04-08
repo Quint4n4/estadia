@@ -76,6 +76,17 @@ def generate_reporte_caja_pdf(apertura) -> io.BytesIO:
     n_completadas  = completadas.count()
     n_canceladas   = canceladas.count()
 
+    # IVA breakdown
+    try:
+        from billing.models import ConfiguracionFiscalSede
+        cfg_fiscal = ConfiguracionFiscalSede.objects.get(sede=sede)
+        iva_pct = cfg_fiscal.iva_tasa
+    except Exception:
+        iva_pct = Decimal('16.00')
+    iva_tasa      = iva_pct / Decimal('100')
+    monto_sin_iva = (monto_total / (1 + iva_tasa)).quantize(Decimal('0.01'))
+    iva_monto     = (monto_total - monto_sin_iva).quantize(Decimal('0.01'))
+
     # ── RL colors ─────────────────────────────────────────────────────────────
     rl_blue_dark  = colors.HexColor('#1E40AF')
     rl_blue_light = colors.HexColor('#3B82F6')
@@ -166,13 +177,15 @@ def generate_reporte_caja_pdf(apertura) -> io.BytesIO:
     story.append(Paragraph('Resumen del turno', section_style))
     summary_data = [
         ['Concepto', 'Valor'],
-        ['Ventas completadas',           str(n_completadas)],
-        ['Ventas canceladas',            str(n_canceladas)],
-        ['Total descuentos aplicados',   _fmt(total_desc)],
-        ['Cobrado en efectivo',          _fmt(monto_efect)],
-        ['Cobrado con tarjeta',          _fmt(monto_tarj)],
-        ['Cobrado por transferencia',    _fmt(monto_transf)],
-        ['TOTAL NETO DEL TURNO',         _fmt(monto_total)],
+        ['Ventas completadas',                    str(n_completadas)],
+        ['Ventas canceladas',                     str(n_canceladas)],
+        ['Total descuentos aplicados',            _fmt(total_desc)],
+        ['Cobrado en efectivo',                   _fmt(monto_efect)],
+        ['Cobrado con tarjeta',                   _fmt(monto_tarj)],
+        ['Cobrado por transferencia',             _fmt(monto_transf)],
+        [f'Subtotal sin IVA',                     _fmt(monto_sin_iva)],
+        [f'IVA ({iva_pct:.0f}%)',                 _fmt(iva_monto)],
+        ['TOTAL NETO DEL TURNO',                  _fmt(monto_total)],
     ]
     summary_table = Table(summary_data, colWidths=[W*0.65, W*0.35])
     summary_table.setStyle(TableStyle([

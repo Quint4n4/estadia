@@ -613,6 +613,45 @@ class StockBySedeView(APIView):
         return Response({'success': True, 'data': StockSerializer(qs, many=True).data})
 
 
+class StockBajoView(APIView):
+    """
+    GET /api/inventory/stock-bajo/
+    Devuelve productos con quantity <= min_quantity.
+    Params: sede_id (opcional — admin ve todas, encargado ve la suya)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if not (user.is_administrator or user.is_encargado):
+            return Response({'success': False, 'message': 'Sin permisos.'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        qs = Stock.objects.filter(
+            quantity__lte=F('min_quantity')
+        ).select_related('producto', 'sede').order_by('quantity')
+
+        sede_id = request.query_params.get('sede_id')
+        if sede_id:
+            qs = qs.filter(sede_id=sede_id)
+        elif user.is_encargado and user.sede:
+            qs = qs.filter(sede=user.sede)
+
+        data = [
+            {
+                'sku':      s.producto.sku,
+                'nombre':   s.producto.name,
+                'cantidad': s.quantity,
+                'minimo':   s.min_quantity,
+                'sede':     s.sede.name,
+                'sede_id':  s.sede.id,
+                'alerta':   'SIN_STOCK' if s.quantity == 0 else 'BAJO',
+            }
+            for s in qs[:30]
+        ]
+        return Response({'success': True, 'data': data})
+
+
 class StockUpdateView(APIView):
     permission_classes = [IsAdministratorOrWorker]
 

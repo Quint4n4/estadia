@@ -18,6 +18,7 @@ export interface ClienteRegistroPayload {
   email: string;
   password: string;
   telefono?: string;
+  sede_id?: number;   // Sucursal donde se registra el cliente (desde taller)
 }
 
 export interface ClienteProfile {

@@ -11,15 +11,25 @@ class ClienteRegistroSerializer(serializers.Serializer):
     password   = serializers.CharField(min_length=6, write_only=True)
     telefono   = serializers.CharField(max_length=20, required=False, allow_blank=True)
     fecha_nac  = serializers.DateField(required=False, allow_null=True)
+    # Sede donde se registró el cliente (opcional — se pasa desde el taller)
+    sede_id    = serializers.IntegerField(required=False, allow_null=True)
 
     def validate_email(self, value):
         if CustomUser.objects.filter(email=value.lower()).exists():
             raise serializers.ValidationError('Ya existe una cuenta con este email.')
         return value.lower()
 
+    def validate_sede_id(self, value):
+        if value is not None:
+            from branches.models import Sede
+            if not Sede.objects.filter(id=value, is_active=True).exists():
+                raise serializers.ValidationError('Sede no encontrada o inactiva.')
+        return value
+
     def create(self, validated_data):
         telefono  = validated_data.pop('telefono', '')
         fecha_nac = validated_data.pop('fecha_nac', None)
+        sede_id   = validated_data.pop('sede_id', None)
         password  = validated_data.pop('password')
 
         user = CustomUser.objects.create_user(
@@ -28,6 +38,8 @@ class ClienteRegistroSerializer(serializers.Serializer):
             **validated_data,
         )
         user.set_password(password)
+        if sede_id:
+            user.sede_id = sede_id
         user.save()
 
         ClienteProfile.objects.create(

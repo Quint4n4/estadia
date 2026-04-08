@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import type { CartItem, MetodoPago, Venta } from '../../types/sales.types';
-import { salesService } from '../../api/sales.service';
+import { useRegistrarVenta } from '../../hooks/useRegistrarVenta';
 
 interface Props {
   sedeId:        number;
@@ -24,10 +24,12 @@ const PaymentModal: React.FC<Props> = ({
   sedeId, items, descuento, metodoPago, montoPagado,
   onClose, onSuccess, onChangeQty, onRemoveItem,
 }) => {
+  const { registrarVenta } = useRegistrarVenta();
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState<string | React.ReactNode>('');
   const [venta,        setVenta]        = useState<Venta | null>(null);
   const [cartMsg,      setCartMsg]      = useState('');
+  const [offlineOk,    setOfflineOk]    = useState(false);
   // UX-014: track whether the user has "touched" the monto recibido section
   // Since the modal opens with the value already set from POSView, we treat it
   // as touched from the first render so the inline error is visible immediately.
@@ -71,7 +73,13 @@ const PaymentModal: React.FC<Props> = ({
         monto_pagado: metodoPago === 'EFECTIVO' ? montoPagado : total,
         notas:        '',
       };
-      const res = await salesService.createVenta(payload);
+      const res = await registrarVenta(payload);
+      if ((res as any).offline) {
+        // Offline: venta encolada localmente
+        setOfflineOk(true);
+        setTimeout(() => { onSuccess(); }, 1800);
+        return;
+      }
       setVenta(res.data);
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
@@ -128,8 +136,8 @@ const PaymentModal: React.FC<Props> = ({
 
         {/* Header */}
         <div className="payment-modal-header">
-          <h2>{venta ? 'Venta registrada' : 'Confirmar cobro'}</h2>
-          {!loading && (
+          <h2>{venta ? 'Venta registrada' : offlineOk ? 'Venta guardada' : 'Confirmar cobro'}</h2>
+          {!loading && !offlineOk && (
             <button
               className="payment-modal-close"
               onClick={venta ? onSuccess : onClose}
@@ -146,7 +154,17 @@ const PaymentModal: React.FC<Props> = ({
 
         {/* Body */}
         <div className="payment-modal-body">
-          {!venta ? (
+          {offlineOk ? (
+            <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>📶</div>
+              <p style={{ fontWeight: 700, fontSize: 16, color: '#2d3748', marginBottom: 8 }}>
+                Venta guardada sin conexión
+              </p>
+              <p style={{ fontSize: 13, color: '#718096', lineHeight: 1.5 }}>
+                Se sincronizará automáticamente cuando se restaure la conexión a internet.
+              </p>
+            </div>
+          ) : !venta ? (
             <>
               {/* Mensaje de carrito vacío */}
               {cartMsg && (
@@ -366,6 +384,14 @@ const PaymentModal: React.FC<Props> = ({
               <p className="payment-ticket-id">Folio # {venta.id}</p>
 
               <div className="payment-ticket-details">
+                <div className="payment-ticket-row" style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
+                  <span>Subtotal sin IVA</span>
+                  <span>{fmt(parseFloat(venta.subtotal_sin_iva))}</span>
+                </div>
+                <div className="payment-ticket-row" style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
+                  <span>IVA</span>
+                  <span>{fmt(parseFloat(venta.iva_monto))}</span>
+                </div>
                 <div className="payment-ticket-row">
                   <span>Total cobrado</span>
                   <span style={{ fontWeight: 700 }}>{fmt(parseFloat(venta.total))}</span>
@@ -401,7 +427,7 @@ const PaymentModal: React.FC<Props> = ({
 
         {/* Footer */}
         <div className="payment-modal-footer">
-          {!venta ? (
+          {offlineOk ? null : !venta ? (
             <>
               <button className="btn-cancel-modal" onClick={onClose} disabled={loading}>
                 Cancelar

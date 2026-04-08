@@ -17,6 +17,7 @@ const EMPTY: Omit<ConfiguracionFiscal, 'sede'> = {
   email:            '',
   logo_url:         '',
   leyenda_ticket:   'Gracias por su compra. Este documento no es una factura fiscal.',
+  iva_tasa:         16,
 };
 
 const ConfigFiscalView: React.FC<Props> = ({ sedes }) => {
@@ -26,6 +27,13 @@ const ConfigFiscalView: React.FC<Props> = ({ sedes }) => {
   const [saving,       setSaving]       = useState(false);
   const [saved,        setSaved]        = useState(false);
   const [error,        setError]        = useState('');
+
+  // Sync selectedSede when sedes prop arrives (useState only runs once on mount)
+  useEffect(() => {
+    if (!selectedSede && sedes.length > 0) {
+      setSelectedSede(sedes[0].id);
+    }
+  }, [sedes, selectedSede]);
 
   useEffect(() => {
     if (!selectedSede) return;
@@ -160,6 +168,20 @@ const ConfigFiscalView: React.FC<Props> = ({ sedes }) => {
               </div>
 
               <div className="form-group">
+                <label>Tasa de IVA (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.01}
+                  value={form.iva_tasa}
+                  onChange={e => setForm(f => ({ ...f, iva_tasa: parseFloat(e.target.value) || 0 }))}
+                  placeholder="16"
+                  style={{ maxWidth: 120 }}
+                />
+              </div>
+
+              <div className="form-group">
                 <label>URL del logotipo</label>
                 <input
                   value={form.logo_url}
@@ -253,7 +275,15 @@ const ConfigFiscalView: React.FC<Props> = ({ sedes }) => {
               </div>
 
               <div style={{ borderTop: '1px dashed #a0aec0', margin: '8px 0' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 13 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#718096' }}>
+                <span>Subtotal sin IVA:</span>
+                <span>$258.62</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#718096' }}>
+                <span>IVA ({form.iva_tasa}%):</span>
+                <span>$41.38</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 13, marginTop: 4 }}>
                 <span>TOTAL:</span>
                 <span>$300.00</span>
               </div>

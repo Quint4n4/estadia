@@ -11,17 +11,17 @@ import {
   Bike,
   Menu as MenuIcon,
   Wrench,
-  AlertTriangle,
   LogOut,
   Factory,
   TrendingUp,
   List,
   Receipt,
   FileText,
-  DollarSign,
-  TrendingDown,
-  ShoppingCart,
-  BarChart2,
+  RefreshCw,
+  UserCheck,
+  CreditCard,
+  Clock,
+  History,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { authService } from '../api/auth.service';
@@ -36,22 +36,26 @@ import SubcategoriesList from '../components/admin/inventory/SubcategoriesList';
 import FabricantesList from '../components/admin/inventory/FabricantesList';
 import MotoCatalogView from '../components/admin/inventory/MotoCatalogView';
 import AuditView from '../components/admin/inventory/AuditView';
-import SedeCard from '../components/admin/dashboard/SedeCard';
 import SedeDetailPanel from '../components/admin/dashboard/SedeDetailPanel';
-import DashboardCharts from '../components/admin/dashboard/DashboardCharts';
+import GananciasPanel from '../components/admin/dashboard/GananciasPanel';
+import TurnosCajasPanel from '../components/admin/dashboard/TurnosCajasPanel';
+import TopItemsChart from '../components/admin/dashboard/TopItemsChart';
+import StockBajoChart from '../components/admin/dashboard/StockBajoChart';
 import ReportesView from '../components/admin/dashboard/ReportesView';
 import ConfigFiscalView from '../components/admin/billing/ConfigFiscalView';
 import ReportesCajaView from '../components/encargado/ReportesCajaView';
 import LockedAccountsBanner from '../components/admin/LockedAccountsBanner';
 import SecurityView from '../components/admin/SecurityView';
 import CatalogoServiciosList from '../components/admin/servicios/CatalogoServiciosList';
+import TallerHistorialView from '../components/admin/dashboard/TallerHistorialView';
 import '../styles/DashboardPage.css';
 
 type Section =
   | 'dashboard' | 'users' | 'sedes' | 'security'
   | 'products' | 'categories' | 'subcategories' | 'fabricantes' | 'motos' | 'audits'
   | 'reportes' | 'reportes-caja' | 'config-fiscal'
-  | 'catalogo-servicios';
+  | 'catalogo-servicios'
+  | 'taller-historial';
 
 const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; group?: string }[] = [
   { id: 'dashboard',     label: 'Dashboard',      icon: <LayoutDashboard size={18} /> },
@@ -64,7 +68,8 @@ const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; group?: st
   { id: 'fabricantes',   label: 'Fabricantes',     icon: <Factory size={18} />,      group: 'Inventario' },
   { id: 'motos',         label: 'Catálogo Motos',  icon: <Bike size={18} />,         group: 'Inventario' },
   { id: 'audits',        label: 'Auditorías',      icon: <ClipboardList size={18} />,group: 'Inventario' },
-  { id: 'catalogo-servicios', label: 'Catálogo de Servicios', icon: <Wrench size={18} />, group: 'Servicios' },
+  { id: 'catalogo-servicios', label: 'Catálogo de Servicios', icon: <Wrench size={18} />,  group: 'Servicios' },
+  { id: 'taller-historial',  label: 'Historial Taller',      icon: <History size={18} />, group: 'Servicios' },
   { id: 'reportes',      label: 'Reportes',        icon: <TrendingUp size={18} />,   group: 'Reportes' },
   { id: 'reportes-caja',  label: 'Reportes Caja',   icon: <FileText size={18} />,   group: 'Reportes' },
   { id: 'config-fiscal', label: 'Config. Tickets', icon: <Receipt size={18} />,      group: 'Reportes' },
@@ -73,137 +78,95 @@ const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; group?: st
 // ─── Dashboard overview ───────────────────────────────────────────────────────
 
 interface OverviewProps {
-  stats: DashboardStats | null;
-  sedes: SedeSnapshot[];
-  resumen: SedeResumenVentas[];
+  stats:    DashboardStats | null;
+  sedes:    SedeSnapshot[];
+  resumen:  SedeResumenVentas[];
   isLoading: boolean;
-  error: string;
+  error:    string;
   onRefresh: () => void;
   onNavigateSecurity: () => void;
 }
 
-const fmtMXN = (n: number) =>
-  `$${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const KpiCard: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: number | string;
+  sub?: string;
+  color: string;
+  bg: string;
+}> = ({ icon, label, value, sub, color, bg }) => (
+  <div style={{
+    background: '#fff',
+    borderRadius: 12,
+    padding: '16px 20px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+  }}>
+    <div style={{ width: 42, height: 42, borderRadius: 10, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      {React.cloneElement(icon as React.ReactElement<{ size?: number; color?: string }>, { size: 20, color })}
+    </div>
+    <div>
+      <div style={{ fontSize: 11, color: '#718096', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color: '#2d3748', lineHeight: 1.2 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: '#a0aec0', marginTop: 1 }}>{sub}</div>}
+    </div>
+  </div>
+);
 
-const DashboardOverview: React.FC<OverviewProps> = ({ stats, sedes, resumen, isLoading, error, onRefresh, onNavigateSecurity }) => {
+const DashboardOverview: React.FC<OverviewProps> = ({ sedes, resumen, isLoading, error, onRefresh, onNavigateSecurity }) => {
   const [selectedSede, setSelectedSede] = useState<SedeSnapshot | null>(null);
 
-  const totalOnShift = sedes.reduce((acc, s) => acc + s.on_shift_now, 0);
-  const totalAlerts  = sedes.reduce((acc, s) => acc + s.out_of_stock_count + s.low_stock_count, 0);
-
-  // Global financial totals derived from resumen data
-  const totalIngresosHoy    = resumen.reduce((sum, r) => sum + parseFloat(String(r.ingresos_hoy    ?? 0)), 0);
-  const totalIngresosMes    = resumen.reduce((sum, r) => sum + parseFloat(String(r.ingresos_mes    ?? 0)), 0);
-  const totalDevolucionesMes = resumen.reduce((sum, r) => sum + r.devoluciones_mes, 0);
-  const totalMontoDevMes    = resumen.reduce((sum, r) => sum + parseFloat(String(r.monto_devoluciones_mes ?? 0)), 0);
-
-  // Build a map for fast lookup: sedeId → resumen
-  const resumenMap = new Map(resumen.map(r => [r.sede_id, r]));
+  // FILA 1 KPI values
+  const totalStaff          = sedes.reduce((s, x) => s + x.total_workers + x.total_cashiers + x.total_encargados, 0);
+  const totalClientes       = sedes.reduce((s, x) => s + (x.total_clientes ?? 0), 0);
+  const totalCajasAbiertas  = resumen.reduce((s, r) => s + r.cajas_abiertas.length, 0);
+  const totalEnTurno        = sedes.reduce((s, x) => s + x.on_shift_now, 0);
 
   if (isLoading) {
-    return <div className="table-loading">Cargando dashboard...</div>;
+    return <div className="table-loading">Cargando dashboard…</div>;
   }
 
   return (
     <div className="section-container">
       {/* Locked accounts alert */}
       <LockedAccountsBanner onUnlock={onNavigateSecurity} />
-
       {error && <div className="error-banner">{error}</div>}
 
-      {/* Top KPI strip — operativo */}
-      <div className="stats-grid" style={{ marginBottom: 20 }}>
-        {[
-          { label: 'Total usuarios',  value: stats?.total_users ?? 0,     color: 'blue',   icon: <Users size={22} /> },
-          { label: 'Sedes activas',   value: sedes.length,                color: 'purple', icon: <Building2 size={22} /> },
-          { label: 'En turno ahora',  value: totalOnShift,                color: 'green',  icon: <Wrench size={22} /> },
-          { label: 'Alertas stock',   value: totalAlerts,                 color: totalAlerts > 0 ? 'red' : 'green', icon: <AlertTriangle size={22} /> },
-        ].map((s) => (
-          <div key={s.label} className="stat-card">
-            <div className={`stat-icon ${s.color}`}>{s.icon}</div>
-            <div className="stat-content">
-              <p className="stat-label">{s.label}</p>
-              <p className="stat-value">{s.value}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Financial KPI strip */}
-      {resumen.length > 0 && (
-        <>
-          <h3 className="section-subtitle" style={{ margin: '0 0 12px' }}>Resumen financiero global</h3>
-          <div className="stats-grid" style={{ marginBottom: 28 }}>
-            {[
-              {
-                label: 'Ingresos hoy',
-                value: fmtMXN(totalIngresosHoy),
-                color: 'blue',
-                icon: <DollarSign size={22} />,
-              },
-              {
-                label: 'Ingresos del mes',
-                value: fmtMXN(totalIngresosMes),
-                color: 'green',
-                icon: <BarChart2 size={22} />,
-              },
-              {
-                label: 'Devoluciones mes',
-                value: String(totalDevolucionesMes),
-                color: totalDevolucionesMes > 0 ? 'red' : 'green',
-                icon: <ShoppingCart size={22} />,
-              },
-              {
-                label: 'Monto dev. mes',
-                value: fmtMXN(totalMontoDevMes),
-                color: totalMontoDevMes > 0 ? 'red' : 'green',
-                icon: <TrendingDown size={22} />,
-              },
-            ].map((s) => (
-              <div key={s.label} className="stat-card">
-                <div className={`stat-icon ${s.color}`}>{s.icon}</div>
-                <div className="stat-content">
-                  <p className="stat-label">{s.label}</p>
-                  <p className="stat-value" style={{ fontSize: 16 }}>{s.value}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Sede cards */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h3 className="section-subtitle">Sedes</h3>
+      {/* Header row: título + refresh */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#1a1a2e' }}>Dashboard</h2>
+          <p style={{ margin: 0, fontSize: 12, color: '#718096' }}>{sedes.length} sede{sedes.length !== 1 ? 's' : ''} activa{sedes.length !== 1 ? 's' : ''}</p>
+        </div>
         <button
-          className="btn-secondary"
-          style={{ fontSize: 12, padding: '5px 12px' }}
           onClick={onRefresh}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', fontSize: 12, fontWeight: 600, color: '#4a5568', cursor: 'pointer' }}
         >
-          Actualizar
+          <RefreshCw size={13} /> Actualizar
         </button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, marginBottom: 32 }}>
-        {sedes.map(s => (
-          <SedeCard
-            key={s.id}
-            sede={s}
-            resumen={resumenMap.get(s.id)}
-            onClick={setSelectedSede}
-          />
-        ))}
-        {sedes.length === 0 && (
-          <p className="dashboard-empty-text">No hay sedes activas.</p>
-        )}
+
+      {/* FILA 1 — KPI cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+        <KpiCard icon={<Users />}       label="Staff total"     value={totalStaff}         sub="trabajadores y cajeros" color="#2b6cb0" bg="#ebf8ff" />
+        <KpiCard icon={<UserCheck />}   label="Clientes"        value={totalClientes}       sub="registrados"            color="#276749" bg="#f0fff4" />
+        <KpiCard icon={<CreditCard />}  label="Cajas abiertas"  value={totalCajasAbiertas}  sub="en este momento"        color="#6b46c1" bg="#faf5ff" />
+        <KpiCard icon={<Clock />}       label="En turno ahora"  value={totalEnTurno}        sub="empleados activos"      color="#c05621" bg="#fffaf0" />
       </div>
 
-      {/* Charts */}
-      {stats && sedes.length > 0 && (
-        <>
-          <h3 className="section-subtitle" style={{ margin: '0 0 16px' }}>Análisis</h3>
-          <DashboardCharts sedes={sedes} stats={stats} resumen={resumen} />
-        </>
-      )}
+      {/* FILA 2 — Panel de ganancias */}
+      <GananciasPanel resumen={resumen} sedes={sedes} />
+
+      {/* FILA 3 — Cajas + Turnos */}
+      <TurnosCajasPanel sedes={sedes} resumen={resumen} />
+
+      {/* FILA 4 — Gráficas */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
+        <TopItemsChart sedes={sedes} />
+        <StockBajoChart sedes={sedes} />
+      </div>
 
       {/* Sede detail modal */}
       {selectedSede && (
@@ -337,6 +300,7 @@ const DashboardPage: React.FC = () => {
           {activeSection === 'motos'         && <MotoCatalogView />}
           {activeSection === 'audits'        && <AuditView />}
           {activeSection === 'catalogo-servicios' && <CatalogoServiciosList />}
+          {activeSection === 'taller-historial'  && <TallerHistorialView sedes={sedes} />}
           {activeSection === 'reportes'      && <ReportesView sedes={sedes} />}
           {activeSection === 'reportes-caja'  && <ReportesCajaView showSede />}
           {activeSection === 'config-fiscal' && <ConfigFiscalView sedes={sedes} />}

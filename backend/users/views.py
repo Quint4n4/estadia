@@ -276,6 +276,7 @@ def _sede_snapshot(sede):
         'low_stock_count':    low_stock_count,
         'out_of_stock_count': out_of_stock_count,
         'total_stock_quantity': total_stock_quantity,
+        'total_clientes': CustomUser.objects.filter(role='CUSTOMER', sede=sede).count(),
     }
 
 

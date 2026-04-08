@@ -72,18 +72,44 @@ class VentaItemSerializer(serializers.ModelSerializer):
 
 class VentaSerializer(serializers.ModelSerializer):
     """Read-only: full sale with all items and computed fields."""
-    cajero_name = serializers.CharField(source='cajero.get_full_name', read_only=True)
-    sede_name   = serializers.CharField(source='sede.name', read_only=True)
-    items       = VentaItemSerializer(many=True, read_only=True)
+    cajero_name      = serializers.CharField(source='cajero.get_full_name', read_only=True)
+    sede_name        = serializers.CharField(source='sede.name', read_only=True)
+    items            = VentaItemSerializer(many=True, read_only=True)
+    subtotal_sin_iva = serializers.SerializerMethodField()
+    iva_monto        = serializers.SerializerMethodField()
+    servicio_id      = serializers.SerializerMethodField()
 
     class Meta:
         model  = Venta
         fields = (
             'id', 'sede', 'sede_name', 'cajero', 'cajero_name',
             'items', 'subtotal', 'descuento', 'total',
+            'subtotal_sin_iva', 'iva_monto',
             'metodo_pago', 'monto_pagado', 'cambio',
             'status', 'notas', 'created_at',
+            'servicio_id',
         )
+
+    def get_servicio_id(self, obj):
+        servicio = obj.servicios_taller.first()
+        return servicio.id if servicio else None
+
+    def _get_iva_tasa(self, obj) -> Decimal:
+        from billing.models import ConfiguracionFiscalSede
+        try:
+            cfg = ConfiguracionFiscalSede.objects.get(sede=obj.sede)
+            return cfg.iva_tasa / Decimal('100')
+        except ConfiguracionFiscalSede.DoesNotExist:
+            return Decimal('0.16')
+
+    def get_subtotal_sin_iva(self, obj):
+        tasa = self._get_iva_tasa(obj)
+        return str((obj.total / (1 + tasa)).quantize(Decimal('0.01')))
+
+    def get_iva_monto(self, obj):
+        tasa = self._get_iva_tasa(obj)
+        sin_iva = (obj.total / (1 + tasa)).quantize(Decimal('0.01'))
+        return str((obj.total - sin_iva).quantize(Decimal('0.01')))
 
 
 class VentaCreateSerializer(serializers.Serializer):

@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { salesService } from '../api/sales.service';
 import { tallerService } from '../api/taller.service';
+import { inventoryService } from '../api/inventory.service';
+import { NetworkStatusBadge } from '../components/common/NetworkStatusBadge';
+import { db } from '../db/localDB';
 import POSView from '../components/cashier/POSView';
 import SalesHistoryView from '../components/cashier/SalesHistoryView';
 import CajaClosedScreen from '../components/cashier/CajaClosedScreen';
@@ -30,30 +33,84 @@ const CashierPanel: React.FC = () => {
     (user?.first_name?.charAt(0) ?? '') +
     (user?.last_name?.charAt(0)  ?? '');
 
+  // Poblar caché de productos en IndexedDB al abrir la caja
+  const poblarCacheProductos = useCallback(async () => {
+    if (!sedeId) return;
+    try {
+      const res = await inventoryService.listProducts({ is_active: true, page_size: 500, sede_id: sedeId });
+      const productos = res.data?.products ?? [];
+      await db.productos.bulkPut(productos.map(p => ({
+        id:            p.id,
+        sku:           p.sku,
+        name:          p.name,
+        price:         p.price,
+        categoria_name: p.categoria_name ?? null,
+        isActive:      p.is_active,
+        cachedAt:      new Date().toISOString(),
+      })));
+    } catch { /* usar caché existente si falla */ }
+  }, [sedeId]);
+
   useEffect(() => {
     if (!sedeId) { setCajaStatus('cerrada'); return; }
     salesService.miEstadoCaja()
-      .then(r => {
+      .then(async r => {
         if (r.data.tiene_caja_abierta && r.data.apertura) {
-          setAperturaId(r.data.apertura.id);
+          const ap = r.data.apertura;
+          // Persistir en IndexedDB para uso offline
+          await db.apertura_caja.put({
+            id:            ap.id,
+            sedeId:        ap.sede,
+            cajeroId:      ap.cajero,
+            fechaApertura: ap.fecha_apertura,
+            status:        'ABIERTA',
+            cachedAt:      new Date().toISOString(),
+          });
+          setAperturaId(ap.id);
+          setCajaStatus('abierta');
+        } else {
+          // Servidor dice cerrada: limpiar cache
+          await db.apertura_caja.where('sedeId').equals(sedeId).delete();
+          setCajaStatus('cerrada');
+        }
+      })
+      .catch(async () => {
+        // Sin red: intentar restaurar desde IndexedDB
+        const local = await db.apertura_caja
+          .where('sedeId').equals(sedeId)
+          .and(a => a.status === 'ABIERTA')
+          .first();
+        if (local) {
+          setAperturaId(local.id);
           setCajaStatus('abierta');
         } else {
           setCajaStatus('cerrada');
         }
-      })
-      .catch(() => setCajaStatus('cerrada'));
+      });
   }, [sedeId]);
 
-  const handleAbierta = (id: number) => {
+  const handleAbierta = async (id: number) => {
     setAperturaId(id);
     setCajaStatus('abierta');
     setSection('pos');
+    poblarCacheProductos();
+    // Persistir apertura en IndexedDB
+    await db.apertura_caja.put({
+      id,
+      sedeId:        sedeId,
+      cajeroId:      cajeroId,
+      fechaApertura: new Date().toISOString(),
+      status:        'ABIERTA',
+      cachedAt:      new Date().toISOString(),
+    });
   };
 
   const handleCerrarCaja = async () => {
     if (!aperturaId) return;
     try {
       await salesService.cerrarCaja(aperturaId);
+      // Actualizar estado local
+      await db.apertura_caja.update(aperturaId, { status: 'CERRADA' });
       setAperturaId(null);
       setCajaStatus('cerrada');
       setSection('pos');
@@ -215,14 +272,17 @@ const CashierPanel: React.FC = () => {
       {/* Main area */}
       <main className={`cashier-main${section === 'pos' && cajaStatus === 'abierta' ? ' cashier-main--pos' : ''}`}>
         {!(section === 'pos' && cajaStatus === 'abierta') && (
-          <div className="cashier-main-header">
-            {cajaStatus !== 'abierta'
-              ? 'Caja'
-              : section === 'pos'             ? 'Punto de Venta'
-              : section === 'history'         ? 'Ventas del día'
-              : section === 'historial_taller' ? 'Historial Taller'
-              : 'Taller / Servicios'
-            }
+          <div className="cashier-main-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>
+              {cajaStatus !== 'abierta'
+                ? 'Caja'
+                : section === 'pos'             ? 'Punto de Venta'
+                : section === 'history'         ? 'Ventas del día'
+                : section === 'historial_taller' ? 'Historial Taller'
+                : 'Taller / Servicios'
+              }
+            </span>
+            <NetworkStatusBadge />
           </div>
         )}
 

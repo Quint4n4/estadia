@@ -7,7 +7,6 @@ interface Props {
   onClose: () => void;
 }
 
-const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
 const SedeDetailPanel: React.FC<Props> = ({ sede, onClose }) => {
   const hasAlerts = sede.low_stock_count > 0 || sede.out_of_stock_count > 0;

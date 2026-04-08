@@ -11,7 +11,7 @@ class ConfiguracionFiscalSedeSerializer(serializers.ModelSerializer):
             'id', 'sede', 'sede_name',
             'nombre_comercial', 'nombre_legal', 'rfc',
             'direccion', 'telefono', 'email',
-            'logo_url', 'leyenda_ticket',
+            'logo_url', 'leyenda_ticket', 'iva_tasa',
             'updated_at',
         )
         read_only_fields = ('id', 'sede_name', 'updated_at')

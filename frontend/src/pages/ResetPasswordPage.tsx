@@ -1,4 +1,5 @@
-import React, { useState, useEffect, FormEvent } from 'react';
+import React, { useState, useEffect } from 'react';
+import type { FormEvent } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { authService } from '../api/auth.service';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';

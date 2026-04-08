@@ -276,6 +276,16 @@ class ServicioListView(APIView):
         if fecha_hasta:
             qs = qs.filter(fecha_recepcion__date__lte=fecha_hasta)
 
+        # Filtro por venta asociada (para buscar el servicio desde SalesHistoryView)
+        venta_id = request.query_params.get('venta_id')
+        if venta_id:
+            qs = qs.filter(venta_id=venta_id)
+
+        # Filtro por folio exacto (para buscar desde SalesHistoryView via notas)
+        folio = request.query_params.get('folio')
+        if folio:
+            qs = qs.filter(folio=folio)
+
         # Excluir ENTREGADO por defecto (salvo que se pida explícitamente)
         include_entregado = request.query_params.get('include_entregado', 'false').lower() == 'true'
         if not include_entregado and not estado:
@@ -950,6 +960,99 @@ class RechazarSolicitudView(APIView):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  ÍTEMS DE SERVICIO (agregar/eliminar durante EN_DIAGNOSTICO)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ServicioItemsView(APIView):
+    """
+    POST   /api/taller/servicios/<pk>/items/           — Agregar refacción (EN_DIAGNOSTICO)
+    DELETE /api/taller/servicios/<pk>/items/<item_pk>/ — Eliminar refacción (EN_DIAGNOSTICO)
+    """
+    permission_classes = [IsMecanicoOrAbove]
+
+    def post(self, request, pk):
+        try:
+            servicio = ServicioMoto.objects.get(pk=pk)
+        except ServicioMoto.DoesNotExist:
+            return Response({'success': False, 'message': 'Servicio no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if servicio.status != ServicioMoto.Status.EN_DIAGNOSTICO:
+            return Response(
+                {'success': False, 'message': 'Solo se pueden agregar refacciones en estado EN_DIAGNOSTICO.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if request.user.role == 'MECANICO' and servicio.mecanico != request.user:
+            return Response({'success': False, 'message': 'No eres el mecánico asignado.'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .serializers import ServicioItemInputSerializer as ItemSerializer
+        serializer = ItemSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'success': False, 'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        ServicioItem.objects.create(
+            servicio=servicio,
+            tipo=data['tipo'],
+            descripcion=data['descripcion'],
+            producto=data.get('producto'),
+            cantidad=data['cantidad'],
+            precio_unitario=data['precio_unitario'],
+            aprobado=True,
+            created_by=request.user,
+        )
+        servicio.recalcular_totales()
+        servicio.refresh_from_db()
+        return Response({
+            'success': True,
+            'message': 'Ítem agregado.',
+            'data': ServicioMotoDetailSerializer(
+                ServicioMoto.objects.select_related(
+                    'moto', 'cliente__usuario', 'cajero', 'mecanico', 'sede'
+                ).prefetch_related('items', 'solicitudes_extra').get(pk=pk)
+            ).data,
+        }, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, pk, item_pk):
+        try:
+            servicio = ServicioMoto.objects.get(pk=pk)
+        except ServicioMoto.DoesNotExist:
+            return Response({'success': False, 'message': 'Servicio no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if servicio.status != ServicioMoto.Status.EN_DIAGNOSTICO:
+            return Response(
+                {'success': False, 'message': 'Solo se pueden eliminar ítems en estado EN_DIAGNOSTICO.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if request.user.role == 'MECANICO' and servicio.mecanico != request.user:
+            return Response({'success': False, 'message': 'No eres el mecánico asignado.'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            item = ServicioItem.objects.get(pk=item_pk, servicio=servicio)
+        except ServicioItem.DoesNotExist:
+            return Response({'success': False, 'message': 'Ítem no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if item.tipo == ServicioItem.Tipo.MANO_OBRA:
+            return Response(
+                {'success': False, 'message': 'No se puede eliminar la mano de obra desde aquí.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        item.delete()
+        servicio.recalcular_totales()
+        return Response({
+            'success': True,
+            'message': 'Ítem eliminado.',
+            'data': ServicioMotoDetailSerializer(
+                ServicioMoto.objects.select_related(
+                    'moto', 'cliente__usuario', 'cajero', 'mecanico', 'sede'
+                ).prefetch_related('items', 'solicitudes_extra').get(pk=pk)
+            ).data,
+        })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  IMÁGENES DE EVIDENCIA
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1498,3 +1601,146 @@ class ReporteTallerView(APIView):
                 'activas_por_status': activas_por_status,
             }
         })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  REPORTE TALLER — DESCARGA PDF
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ReporteTallerPDFView(APIView):
+    """
+    GET /api/taller/servicios/reporte-pdf/
+
+    Genera y descarga un PDF del historial del taller para el período indicado.
+    Permiso: IsJefeMecanicoOrAbove (JEFE_MECANICO, ENCARGADO, ADMINISTRATOR).
+
+    Query params (todos opcionales excepto fechas):
+      fecha_desde   YYYY-MM-DD  (obligatorio)
+      fecha_hasta   YYYY-MM-DD  (obligatorio)
+      sede_id       int         (admin puede especificar; otros usan su sede)
+      status        string      (opcional — filtra por estado)
+      search        string      (opcional — folio, cliente, moto)
+    """
+    permission_classes = [IsJefeMecanicoOrAbove]
+
+    def get(self, request):
+        from datetime import date
+        from decimal import Decimal
+        from django.http import HttpResponse
+        from django.db.models import Sum
+        from django.db.models.functions import Coalesce
+        from django.db.models import Value
+
+        user = request.user
+
+        # ── 1. Determinar sede ────────────────────────────────────────────────
+        if user.role == 'ADMINISTRATOR':
+            sede_id_param = request.query_params.get('sede_id')
+            if sede_id_param:
+                try:
+                    from branches.models import Sede
+                    sede_obj = Sede.objects.get(pk=sede_id_param)
+                    sede_nombre = sede_obj.name
+                    qs = ServicioMoto.objects.filter(archivado=True, sede_id=sede_id_param)
+                except Exception:
+                    sede_nombre = f'Sede {sede_id_param}'
+                    qs = ServicioMoto.objects.filter(archivado=True, sede_id=sede_id_param)
+            else:
+                sede_nombre = 'Todas las sedes'
+                qs = ServicioMoto.objects.filter(archivado=True)
+        else:
+            sede = getattr(user, 'sede', None)
+            if not sede:
+                return Response(
+                    {'success': False, 'message': 'No se pudo determinar la sede del usuario.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            sede_nombre = sede.name
+            qs = ServicioMoto.objects.filter(archivado=True, sede=sede)
+
+        # ── 2. Fechas obligatorias ────────────────────────────────────────────
+        fecha_desde_str = request.query_params.get('fecha_desde', '').strip()
+        fecha_hasta_str = request.query_params.get('fecha_hasta', '').strip()
+
+        if not fecha_desde_str or not fecha_hasta_str:
+            return Response(
+                {'success': False, 'message': 'fecha_desde y fecha_hasta son obligatorios (YYYY-MM-DD).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            fecha_desde = date.fromisoformat(fecha_desde_str)
+            fecha_hasta = date.fromisoformat(fecha_hasta_str)
+        except ValueError:
+            return Response(
+                {'success': False, 'message': 'Formato de fecha inválido. Use YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── 3. Filtros opcionales (same as HistorialServiciosView) ────────────
+        qs = qs.filter(
+            fecha_archivado__date__gte=fecha_desde,
+            fecha_archivado__date__lte=fecha_hasta,
+        )
+        estado = request.query_params.get('status', '').strip()
+        if estado:
+            qs = qs.filter(status=estado)
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(folio__icontains=search) |
+                Q(cliente__user__first_name__icontains=search) |
+                Q(cliente__user__last_name__icontains=search) |
+                Q(moto__marca__icontains=search) |
+                Q(moto__modelo__icontains=search)
+            )
+
+        qs = qs.select_related('moto', 'cliente', 'mecanico', 'sede').order_by('-fecha_archivado')
+
+        # ── 4. KPIs ───────────────────────────────────────────────────────────
+        qs_entregadas = qs.filter(status=ServicioMoto.Status.ENTREGADO)
+        agg = qs_entregadas.aggregate(
+            ingresos=Coalesce(Sum('total'), Value(Decimal('0'))),
+            efectivo=Coalesce(
+                Sum('total', filter=Q(metodo_pago='EFECTIVO')), Value(Decimal('0'))
+            ),
+            tarjeta=Coalesce(
+                Sum('total', filter=Q(metodo_pago='TARJETA')), Value(Decimal('0'))
+            ),
+            transferencia=Coalesce(
+                Sum('total', filter=Q(metodo_pago='TRANSFERENCIA')), Value(Decimal('0'))
+            ),
+        )
+        kpis = {
+            'total':         qs.count(),
+            'entregados':    qs_entregadas.count(),
+            'cancelados':    qs.filter(status=ServicioMoto.Status.CANCELADO).count(),
+            'ingresos':      agg['ingresos'],
+            'efectivo':      agg['efectivo'],
+            'tarjeta':       agg['tarjeta'],
+            'transferencia': agg['transferencia'],
+        }
+
+        # ── 5. Serialize ──────────────────────────────────────────────────────
+        serializer = ServicioMotoListSerializer(qs, many=True, context={'request': request})
+        servicios_data = list(serializer.data)
+
+        # ── 6. Generate PDF ───────────────────────────────────────────────────
+        try:
+            from .pdf_service import generate_reporte_taller_pdf
+            pdf_buffer = generate_reporte_taller_pdf(
+                params={'fecha_desde': fecha_desde_str, 'fecha_hasta': fecha_hasta_str},
+                servicios=servicios_data,
+                kpis=kpis,
+                sede_nombre=sede_nombre,
+            )
+        except ImportError as exc:
+            return Response(
+                {'success': False, 'message': str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        sede_slug = sede_nombre.lower().replace(' ', '_')[:20]
+        filename = f'taller_{sede_slug}_{fecha_desde_str}_{fecha_hasta_str}.pdf'
+        response = HttpResponse(pdf_buffer.read(), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response

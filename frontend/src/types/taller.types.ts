@@ -210,6 +210,9 @@ export interface ServicioListParams {
   fecha_desde?: string;
   fecha_hasta?: string;
   include_entregado?: boolean;
+  venta_id?: number;
+  incluir_archivados?: boolean;
+  folio?: string;
 }
 
 // ── Respuestas API ─────────────────────────────────────────────────────────────

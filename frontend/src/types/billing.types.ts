@@ -10,5 +10,6 @@ export interface ConfiguracionFiscal {
   email:            string;
   logo_url:         string;
   leyenda_ticket:   string;
+  iva_tasa:         number;
   updated_at?:      string;
 }

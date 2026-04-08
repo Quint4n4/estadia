@@ -148,4 +148,8 @@ export const inventoryService = {
   finalizeAudit(id: number): Promise<{ success: boolean; message: string; data: AuditoriaInventario }> {
     return apiClient.post(`${BASE}/audits/${id}/finalize/`).then(r => r.data);
   },
+
+  getStockBajo(params?: { sede_id?: number }): Promise<{ success: boolean; data: import('../types/sales.types').StockBajoItem[] }> {
+    return apiClient.get(`${BASE}/stock-bajo/`, { params }).then(r => r.data);
+  },
 };

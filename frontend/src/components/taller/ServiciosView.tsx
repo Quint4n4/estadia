@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { tallerService } from '../../api/taller.service';
-import { useAuth } from '../../contexts/AuthContext';
 import type { ServicioMotoList, ServicioStatus } from '../../types/taller.types';
 import NuevoServicioModal from './NuevoServicioModal';
 import ServicioDetalleModal from './ServicioDetalleModal';
+import { useTallerOffline } from '../../hooks/useTallerOffline';
+import { db } from '../../db/localDB';
 
 interface Props {
   sedeId: number;
@@ -39,17 +40,6 @@ const STATUS_STYLE: Record<ServicioStatus, StatusStyle> = {
   CANCELADO:           { color: '#c53030', gradFrom: '#fff5f5', gradTo: '#fed7d7', dotColor: '#fc8181' },
 };
 
-/* Chip de estatus con badge color sólido (usado en lista compacta) */
-const STATUS_CHIP_BG: Record<ServicioStatus, string> = {
-  RECIBIDO:            '#c05621',
-  EN_DIAGNOSTICO:      '#6b46c1',
-  EN_PROCESO:          '#2b6cb0',
-  COTIZACION_EXTRA:    '#b7791f',
-  LISTA_PARA_ENTREGAR: '#2c7a7b',
-  LISTO:               '#276749',
-  ENTREGADO:           '#553c9a',
-  CANCELADO:           '#c53030',
-};
 
 const FILTROS: { value: ServicioStatus | ''; label: string }[] = [
   { value: '',                    label: 'Todos (activos)' },
@@ -228,7 +218,7 @@ const MotoServiceCard: React.FC<CardProps> = ({ srv, onClick }) => {
 
 /* ── Vista principal ─────────────────────────────────────────────────── */
 const ServiciosView: React.FC<Props> = ({ sedeId }) => {
-  const { user } = useAuth();
+  const { cacheServicios } = useTallerOffline();
 
   const [servicios,    setServicios]    = useState<ServicioMotoList[]>([]);
   const [loading,      setLoading]      = useState(true);
@@ -245,12 +235,48 @@ const ServiciosView: React.FC<Props> = ({ sedeId }) => {
         include_entregado: filtroStatus === '',
       });
       setServicios(data);
+      // Actualizar cache offline
+      if (sedeId) await cacheServicios(sedeId, data);
     } catch {
-      if (!silent) setServicios([]);
+      // Sin red: cargar desde IndexedDB
+      const locales = await db.servicios
+        .where('sedeId').equals(sedeId)
+        .filter(s => s.syncStatus !== 'error')
+        .toArray();
+      if (locales.length > 0) {
+        setServicios(locales.map(s => ({
+          id:                   s.serverId ?? 0,
+          folio:                s.serverId ? `SVC-${s.serverId}` : `OFFLINE-${s.localId.slice(0,8)}`,
+          sede_nombre:          '',
+          cliente_nombre:       s.clienteNombre ?? '',
+          moto_display:         s.motoDisplay ?? '',
+          cajero_nombre:        '',
+          mecanico_nombre:      null,
+          status:               s.status,
+          status_display:       s.status,
+          pago_status:          s.pagoStatus,
+          pago_status_display:  s.pagoStatus,
+          mano_de_obra:         '0',
+          total_refacciones:    '0',
+          total:                s.total ?? '0',
+          descripcion_problema: s.descripcion,
+          tiempo_recibido:      0,
+          tiene_extra_pendiente: false,
+          archivado:            false,
+          fecha_recepcion:      s.timestamp,
+          fecha_entrega_estimada: null,
+          fecha_archivado:      null,
+          archivado_por_nombre: null,
+          diagnostico_listo:    false,
+          _offline_pending:     s.syncStatus === 'pending',
+        } as ServicioMotoList & { _offline_pending?: boolean })));
+      } else if (!silent) {
+        setServicios([]);
+      }
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [sedeId, filtroStatus]);
+  }, [sedeId, filtroStatus, cacheServicios]);
 
   useEffect(() => { cargar(); }, [cargar]);
 

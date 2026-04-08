@@ -3,10 +3,16 @@ import {
   Wrench, Bike, User, CreditCard, CheckSquare, Camera,
   Clock, AlertTriangle, ChevronRight, FileText, DollarSign,
   Loader2, CheckCircle, Package, ArrowRight, UserCheck,
+  Search, Plus, Trash2,
 } from 'lucide-react';
 import { tallerService } from '../../api/taller.service';
+import { inventoryService } from '../../api/inventory.service';
+import type { Producto } from '../../types/inventory.types';
 import { usersService } from '../../api/users.service';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTallerOffline } from '../../hooks/useTallerOffline';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { db } from '../../db/localDB';
 import type {
   ServicioMotoDetail,
   ServicioStatus,
@@ -14,6 +20,7 @@ import type {
   MetodoPago,
 } from '../../types/taller.types';
 import type { User as MecanicoUser } from '../../types/auth.types';
+import TallerTicketModal from './TallerTicketModal';
 
 interface Props {
   servicioId: number;
@@ -30,6 +37,7 @@ const STATUS_CFG: Record<ServicioStatus, { label: string; color: string; bg: str
   LISTA_PARA_ENTREGAR: { label: 'Lista para entregar', color: '#2c7a7b', bg: '#e6fffa', border: '#81e6d9', emoji: '🏷️' },
   LISTO:               { label: 'Lista para entregar', color: '#2c7a7b', bg: '#e6fffa', border: '#81e6d9', emoji: '🏷️' },
   ENTREGADO:           { label: 'Entregado',           color: '#553c9a', bg: '#f3e8ff', border: '#d6bcfa', emoji: '🏁' },
+  CANCELADO:           { label: 'Cancelado',           color: '#c53030', bg: '#fff5f5', border: '#feb2b2', emoji: '❌' },
 };
 
 const NEXT_STATUS: Partial<Record<ServicioStatus, ServicioStatus>> = {
@@ -90,6 +98,8 @@ const InfoField = ({ label, value }: { label: string; value?: string | null }) =
 const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated }) => {
   const { user } = useAuth();
   const role = user?.role ?? '';
+  const { entregarServicio, actualizarDiagnostico } = useTallerOffline();
+  const { isOffline } = useNetworkStatus();
 
   const [servicio,     setServicio]     = useState<ServicioMotoDetail | null>(null);
   const [loading,      setLoading]      = useState(true);
@@ -100,6 +110,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
   const [mecanicoId,   setMecanicoId]   = useState<number | ''>('');
   const [mecanicos,    setMecanicos]    = useState<MecanicoUser[]>([]);
   const [imgAmpliada,  setImgAmpliada]  = useState<string | null>(null);
+  const [showTicket,   setShowTicket]   = useState(false);
 
   /* ── Edición de fotos (solo RECIBIDO + recepción) ── */
   const fileInputRef   = useRef<HTMLInputElement>(null);
@@ -116,6 +127,18 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
   const [savedRefac,   setSavedRefac]   = useState(false);
   const [copiado,      setCopiado]      = useState(false);
 
+  /* ── Estado para piezas del diagnóstico ── */
+  const [pieSearch,     setPieSearch]     = useState('');
+  const [pieResults,    setPieResults]    = useState<Producto[]>([]);
+  const [pieBuscando,   setPieBuscando]   = useState(false);
+  const [pieSelected,   setPieSelected]   = useState<Producto | null>(null);
+  const [pieCant,       setPieCant]       = useState(1);
+  const [piePrecio,     setPiePrecio]     = useState('');
+  const [pieDesc,       setPieDesc]       = useState('');
+  const [pieAdding,     setPieAdding]     = useState(false);
+  const [pieDeletingId, setPieDeletingId] = useState<number | null>(null);
+  const [pieError,      setPieError]      = useState('');
+
   const isCajero   = ['CASHIER', 'ENCARGADO', 'ADMINISTRATOR'].includes(role);
   const isJefe     = ['JEFE_MECANICO', 'ENCARGADO', 'ADMINISTRATOR'].includes(role);
   const isMecanico = role === 'MECANICO';
@@ -129,7 +152,57 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
       setDiagVal((res.data as any).diagnostico_mecanico ?? '');
       setRefacVal((res.data as any).refacciones_requeridas ?? '');
     } catch {
-      setError('No se pudo cargar el servicio.');
+      // Sin red: intentar desde IndexedDB
+      const local = await db.servicios.where('serverId').equals(servicioId).first();
+      if (local) {
+        // Construir un ServicioMotoDetail aproximado desde el cache
+        setServicio({
+          id:                  servicioId,
+          folio:               `SVC-${servicioId}`,
+          sede_nombre:         '',
+          cliente_nombre:      local.clienteNombre ?? '',
+          moto_display:        local.motoDisplay ?? '',
+          cajero_nombre:       '',
+          mecanico_nombre:     null,
+          status:              local.status,
+          status_display:      local.status,
+          pago_status:         local.pagoStatus,
+          pago_status_display: local.pagoStatus,
+          mano_de_obra:        '0',
+          total_refacciones:   '0',
+          total:               local.total ?? '0',
+          descripcion_problema: local.descripcion,
+          tiempo_recibido:     0,
+          tiene_extra_pendiente: false,
+          archivado:           false,
+          fecha_recepcion:     local.timestamp,
+          fecha_entrega_estimada: null,
+          fecha_archivado:     null,
+          archivado_por_nombre: null,
+          diagnostico_listo:   false,
+          // campos de detalle
+          cliente:             null,
+          cliente_email:       '',
+          moto:                { id: 0, marca: '', modelo: '', anio: 0, numero_serie: '', placa: '' },
+          es_reparacion:       local.payload?.es_reparacion ?? false,
+          asignado_por_nombre: null,
+          metodo_pago:         null,
+          monto_pagado:        null,
+          cambio:              null,
+          fecha_inicio:        null,
+          fecha_listo:         null,
+          fecha_entrega:       null,
+          notas_internas:      local.payload?.notas_internas ?? '',
+          diagnostico_mecanico:    '',
+          refacciones_requeridas:  '',
+          checklist_recepcion: [],
+          imagenes:            [],
+          items:               [],
+          solicitudes_extra:   [],
+        } as any);
+      } else {
+        setError('Sin conexión y no hay datos en cache para este servicio.');
+      }
     } finally {
       setLoading(false);
     }
@@ -162,7 +235,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
     if (!servicio) return;
     setGuardandoDiag(true);
     try {
-      await (tallerService as any).actualizarDiagnostico(servicioId, { diagnostico_mecanico: diagVal });
+      await actualizarDiagnostico(servicioId, { diagnostico_mecanico: diagVal });
       setSavedDiag(true);
       setTimeout(() => setSavedDiag(false), 2500);
     } catch { /* silencioso */ }
@@ -173,7 +246,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
     if (!servicio) return;
     setGuardandoRefac(true);
     try {
-      await (tallerService as any).actualizarDiagnostico(servicioId, { refacciones_requeridas: refacVal });
+      await actualizarDiagnostico(servicioId, { refacciones_requeridas: refacVal });
       setSavedRefac(true);
       setTimeout(() => setSavedRefac(false), 2500);
     } catch { /* silencioso */ }
@@ -201,8 +274,52 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
     });
   };
 
+  /* ── Búsqueda de piezas ── */
+  const handleBuscarPiezas = async (q: string) => {
+    if (q.trim().length < 2) { setPieResults([]); return; }
+    setPieBuscando(true);
+    try {
+      const res = await inventoryService.listProducts({ search: q, is_active: true, page_size: 8 });
+      setPieResults(res.data?.products ?? []);
+    } catch { /* silencioso */ }
+    finally { setPieBuscando(false); }
+  };
+
+  const handleAgregarPieza = async () => {
+    if (!piePrecio || !pieDesc) { setPieError('Completa la descripción y el precio.'); return; }
+    setPieAdding(true); setPieError('');
+    try {
+      const res = await tallerService.agregarItemDiagnostico(servicioId, {
+        tipo: 'REFACCION',
+        descripcion: pieDesc,
+        producto: pieSelected?.id ?? null,
+        cantidad: pieCant,
+        precio_unitario: piePrecio,
+      });
+      setServicio(res.data);
+      setPieSearch(''); setPieResults([]); setPieSelected(null);
+      setPieCant(1); setPiePrecio(''); setPieDesc(''); setPieError('');
+      onUpdated();
+    } catch (e: any) { setPieError(e?.response?.data?.message ?? 'Error al agregar la pieza.'); }
+    finally { setPieAdding(false); }
+  };
+
+  const handleEliminarPieza = async (itemId: number) => {
+    setPieDeletingId(itemId); setPieError('');
+    try {
+      const res = await tallerService.eliminarItemDiagnostico(servicioId, itemId);
+      setServicio(res.data);
+      onUpdated();
+    } catch (e: any) { setPieError(e?.response?.data?.message ?? 'Error al eliminar la pieza.'); }
+    finally { setPieDeletingId(null); }
+  };
+
   /* ── Acciones ── */
-  const run = async (fn: () => Promise<void>, afterClose = false) => {
+  const run = async (fn: () => Promise<unknown>, afterClose = false) => {
+    if (isOffline) {
+      setError('Acción no disponible sin conexión. Reconéctate e intenta de nuevo.');
+      return;
+    }
     setAction(true); setError('');
     try { await fn(); onUpdated(); afterClose ? onClose() : load(); }
     catch (e: any) { setError(e?.response?.data?.message ?? 'Ocurrió un error.'); }
@@ -210,16 +327,31 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
   };
 
   const handleAsignar             = () => run(() => tallerService.asignarMecanico(servicioId, { mecanico_id: Number(mecanicoId) }));
-  const handleIniciarReparacion   = () => run(() => tallerService.iniciarReparacion(servicioId));
   const handleSubmitDiagnostico   = () => run(() => tallerService.submitDiagnostico(servicioId));
   const handleListaParaEntregar   = () => run(() => tallerService.marcarListaParaEntregar(servicioId));
   const handleMarcarEntregada     = () => run(() => tallerService.marcarEntregada(servicioId));
-  const handleEntregar            = () => {
+  const handleEntregar = async () => {
     const yaPageado = servicio?.pago_status === 'PAGADO';
     const payload = yaPageado
       ? { metodo_pago: servicio!.metodo_pago ?? 'EFECTIVO', monto_pagado: Number(servicio!.total) }
       : { metodo_pago: metodo, monto_pagado: parseFloat(montoRecibido) || 0 };
-    run(() => tallerService.entregarServicio(servicioId, payload), true);
+    setAction(true); setError('');
+    try {
+      const res = await entregarServicio(servicioId, payload);
+      onUpdated();
+      if ((res as any).offline) {
+        // Sin conexión: cobro encolado, no hay ticket disponible
+        setError('Sin conexión: el cobro se registrará al reconectar.');
+        await load();
+      } else {
+        await load();
+        setShowTicket(true);
+      }
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'Ocurrió un error.');
+    } finally {
+      setAction(false);
+    }
   };
   const handleAprobar             = (sol: SolicitudRefaccionExtra) => run(() => tallerService.aprobarSolicitud(sol.id));
   const handleRechazar            = (sol: SolicitudRefaccionExtra) => run(() => tallerService.rechazarSolicitud(sol.id));
@@ -689,9 +821,9 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
                                       boxSizing: 'border-box' as const,
                                     }}
                                   />
-                                  {montoRecibido !== '' && parseFloat(montoRecibido) >= servicio.total && (
+                                  {montoRecibido !== '' && parseFloat(montoRecibido) >= parseFloat(servicio.total) && (
                                     <div style={{ fontSize: 12, color: '#276749', fontWeight: 700 }}>
-                                      Cambio: {fmt(parseFloat(montoRecibido) - servicio.total)}
+                                      Cambio: {fmt(parseFloat(montoRecibido) - parseFloat(servicio.total))}
                                     </div>
                                   )}
                                 </div>
@@ -719,7 +851,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
                               onClick={handleEntregar}
                               disabled={
                                 actionLoading ||
-                                (metodo === 'EFECTIVO' && (montoRecibido === '' || parseFloat(montoRecibido) < servicio.total))
+                                (metodo === 'EFECTIVO' && (montoRecibido === '' || parseFloat(montoRecibido) < parseFloat(servicio.total)))
                               }
                               style={{
                                 padding: '12px 24px', border: 'none', borderRadius: 10, cursor: 'pointer',
@@ -727,7 +859,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
                                 color: '#fff', fontWeight: 700, fontSize: 14,
                                 display: 'flex', alignItems: 'center', gap: 8,
                                 whiteSpace: 'nowrap' as const,
-                                opacity: (metodo === 'EFECTIVO' && (montoRecibido === '' || parseFloat(montoRecibido) < servicio.total)) ? 0.5 : 1,
+                                opacity: (metodo === 'EFECTIVO' && (montoRecibido === '' || parseFloat(montoRecibido) < parseFloat(servicio.total))) ? 0.5 : 1,
                                 alignSelf: 'flex-end' as const,
                               }}
                             >
@@ -1212,7 +1344,150 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
                       )}
                     </div>
 
-                    {/* ── 3. Botones Autorizar / Rechazar (solo cajero/encargado/admin) ── */}
+                    {/* ── 3. Piezas / Refacciones (mecánico/jefe pueden agregar) ── */}
+                    {(isMecanico || isJefe) && (
+                      <div style={{ ...card, borderColor: '#bee3f8', background: '#ebf8ff' }}>
+                        <div style={cardHdr}>
+                          <div style={ic('#bee3f8')}><Package size={12} color="#2b6cb0" /></div>
+                          <span style={{ ...cardTitle, color: '#2b6cb0' }}>Piezas / Refacciones</span>
+                          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#2b6cb0', background: '#ebf8ff', border: '1px solid #bee3f8', padding: '1px 8px', borderRadius: 10, fontWeight: 600 }}>
+                            {servicio.items.filter(i => i.tipo === 'REFACCION').length} pieza(s)
+                          </span>
+                        </div>
+
+                        {/* Lista de piezas ya agregadas */}
+                        {servicio.items.filter(i => i.tipo !== 'MANO_OBRA').map(item => (
+                          <div key={item.id} style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            marginBottom: 6, padding: '7px 10px',
+                            background: '#fff', borderRadius: 8,
+                            border: '1px solid #bee3f8',
+                          }}>
+                            <span style={{ flex: 1, fontSize: 13, color: '#2d3748', fontWeight: 500 }}>
+                              {(item as any).producto_nombre ?? item.descripcion}
+                              <span style={{ marginLeft: 6, color: '#a0aec0', fontSize: 11 }}>×{item.cantidad}</span>
+                            </span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#2b6cb0' }}>{fmt(item.subtotal)}</span>
+                            <button
+                              onClick={() => handleEliminarPieza(item.id)}
+                              disabled={pieDeletingId === item.id}
+                              title="Eliminar pieza"
+                              style={{
+                                background: 'none', border: 'none', cursor: pieDeletingId === item.id ? 'not-allowed' : 'pointer',
+                                color: '#e53e3e', padding: 4, display: 'flex', alignItems: 'center',
+                              }}
+                            >
+                              {pieDeletingId === item.id ? <Loader2 size={13} className="icon-spin" /> : <Trash2 size={13} />}
+                            </button>
+                          </div>
+                        ))}
+
+                        {/* Buscador de producto */}
+                        <div style={{ position: 'relative' as const, marginBottom: 8 }}>
+                          <Search size={13} color="#3182ce" style={{ position: 'absolute' as const, left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                          {pieBuscando && <Loader2 size={13} className="icon-spin" style={{ position: 'absolute' as const, right: 10, top: '50%', transform: 'translateY(-50%)', color: '#3182ce' }} />}
+                          <input
+                            value={pieSearch}
+                            onChange={e => { setPieSearch(e.target.value); setPieSelected(null); handleBuscarPiezas(e.target.value); }}
+                            placeholder="Buscar producto del inventario (opcional)…"
+                            className="form-input"
+                            style={{ paddingLeft: 32 }}
+                          />
+                        </div>
+
+                        {/* Resultados de búsqueda */}
+                        {pieResults.length > 0 && !pieSelected && (
+                          <div style={{
+                            border: '1px solid #bee3f8', borderRadius: 8, background: '#fff',
+                            marginBottom: 8, maxHeight: 160, overflowY: 'auto' as const,
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                          }}>
+                            {pieResults.map(p => (
+                              <div
+                                key={p.id}
+                                onClick={() => { setPieSelected(p); setPieDesc(p.name); setPiePrecio(p.price); setPieSearch(p.name); setPieResults([]); }}
+                                style={{
+                                  padding: '8px 12px', cursor: 'pointer',
+                                  borderBottom: '1px solid #f0f4f8', fontSize: 13,
+                                  display: 'flex', alignItems: 'center', gap: 8,
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#ebf8ff')}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                              >
+                                <span style={{ flex: 1, fontWeight: 600, color: '#2d3748' }}>{p.name}</span>
+                                <span style={{ color: '#a0aec0', fontSize: 11 }}>SKU: {p.sku}</span>
+                                <span style={{ fontWeight: 700, color: '#2b6cb0' }}>{fmt(p.price)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Formulario de descripción, cantidad y precio */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 72px 100px auto', gap: 8, alignItems: 'flex-end', marginBottom: pieError ? 8 : 0 }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#718096', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }}>Descripción</label>
+                            <input
+                              value={pieDesc}
+                              onChange={e => setPieDesc(e.target.value)}
+                              placeholder="Nombre de la pieza"
+                              className="form-input"
+                            />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#718096', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }}>Cant.</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={pieCant}
+                              onChange={e => setPieCant(Math.max(1, Number(e.target.value)))}
+                              className="form-input"
+                            />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#718096', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }}>Precio unit.</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={piePrecio}
+                              onChange={e => setPiePrecio(e.target.value)}
+                              placeholder="0.00"
+                              className="form-input"
+                            />
+                          </div>
+                          <button
+                            onClick={handleAgregarPieza}
+                            disabled={pieAdding || !pieDesc || !piePrecio}
+                            style={{
+                              padding: '0 14px', height: 38, border: 'none', borderRadius: 8, cursor: 'pointer',
+                              background: pieAdding || !pieDesc || !piePrecio
+                                ? '#e2e8f0'
+                                : 'linear-gradient(135deg, #3182ce, #2b6cb0)',
+                              color: pieAdding || !pieDesc || !piePrecio ? '#a0aec0' : '#fff',
+                              fontWeight: 700, fontSize: 13,
+                              display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' as const,
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            {pieAdding ? <Loader2 size={13} className="icon-spin" /> : <Plus size={13} />}
+                            Agregar
+                          </button>
+                        </div>
+
+                        {pieError && (
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            background: '#fff5f5', border: '1px solid #fed7d7',
+                            borderRadius: 8, padding: '7px 12px',
+                            fontSize: 12, color: '#c53030',
+                          }}>
+                            <AlertTriangle size={12} style={{ flexShrink: 0 }} /> {pieError}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── 4. Botones Autorizar / Rechazar (solo cajero/encargado/admin) ── */}
                     {isCajero && (
                       <div style={{
                         border: '1.5px solid #9ae6b4',
@@ -1288,7 +1563,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
                             <th key={h} style={{
                               padding: '6px 10px', color: '#7b341e', fontWeight: 700, fontSize: 11,
                               borderBottom: '1px solid #fbd38d',
-                              textAlign: (i === 2 ? 'left' : i < 2 ? 'left' : 'center') as const,
+                              textAlign: (i < 3 ? 'left' : 'center') as 'left' | 'center',
                             }}>{h}</th>
                           ))}
                           {isCajero && <th style={{ padding: '6px 10px', color: '#7b341e', fontWeight: 700, fontSize: 11, borderBottom: '1px solid #fbd38d', textAlign: 'center' as const }}>Acción</th>}
@@ -1444,6 +1719,12 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
           }}>✕</button>
         </div>
+      )}
+      {showTicket && servicio && (
+        <TallerTicketModal
+          servicio={servicio}
+          onClose={() => { setShowTicket(false); onClose(); }}
+        />
       )}
     </>
   );

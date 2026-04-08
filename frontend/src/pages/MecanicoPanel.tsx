@@ -6,6 +6,8 @@ import { inventoryService } from '../api/inventory.service';
 import type { ServicioMotoList, SolicitudCreatePayload } from '../types/taller.types';
 import type { Producto } from '../types/inventory.types';
 import ServicioDetalleModal from '../components/taller/ServicioDetalleModal';
+import { useTallerOffline } from '../hooks/useTallerOffline';
+import { db } from '../db/localDB';
 
 const POLL_INTERVAL = 12_000;
 
@@ -300,6 +302,7 @@ const BikeIcon: React.FC<{ size?: number; color?: string }> = ({ size = 36, colo
 const MecanicoPanel: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { cacheServicios } = useTallerOffline();
 
   const [servicios,   setServicios]   = useState<ServicioMotoList[]>([]);
   const [loading,     setLoading]     = useState(true);
@@ -317,9 +320,25 @@ const MecanicoPanel: React.FC = () => {
     try {
       const data = await tallerService.listServicios({ sede_id: sedeId, include_entregado: true });
       setServicios(data);
-    } catch { /* polling silencioso */ }
+      await cacheServicios(sedeId, data);
+    } catch {
+      // Sin red: cargar desde IndexedDB
+      const locales = await db.servicios.where('sedeId').equals(sedeId).toArray();
+      if (locales.length > 0) {
+        setServicios(locales.map(s => ({
+          id: s.serverId ?? 0, folio: s.serverId ? `SVC-${s.serverId}` : `OFFLINE-${s.localId.slice(0,8)}`,
+          sede_nombre: '', cliente_nombre: s.clienteNombre ?? '', moto_display: s.motoDisplay ?? '',
+          cajero_nombre: '', mecanico_nombre: null, status: s.status, status_display: s.status,
+          pago_status: s.pagoStatus, pago_status_display: s.pagoStatus,
+          mano_de_obra: '0', total_refacciones: '0', total: s.total ?? '0',
+          descripcion_problema: s.descripcion, tiempo_recibido: 0, tiene_extra_pendiente: false,
+          archivado: false, fecha_recepcion: s.timestamp,
+          fecha_entrega_estimada: null, fecha_archivado: null, archivado_por_nombre: null, diagnostico_listo: false,
+        } as ServicioMotoList)));
+      }
+    }
     finally { setLoading(false); }
-  }, [sedeId]);
+  }, [sedeId, cacheServicios]);
 
   useEffect(() => {
     cargar();
@@ -328,11 +347,6 @@ const MecanicoPanel: React.FC = () => {
   }, [cargar]);
 
   const handleLogout = () => { logout(); navigate('/login'); };
-
-  const handleIniciarReparacion = async (id: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    try { await tallerService.iniciarReparacion(id); cargar(); } catch { /* silencioso */ }
-  };
 
   const handleSubmitDiagnostico = async (id: number) => {
     try { await tallerService.submitDiagnostico(id); cargar(); } catch { /* silencioso */ }
