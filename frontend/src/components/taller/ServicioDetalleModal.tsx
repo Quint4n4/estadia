@@ -151,8 +151,10 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
       setServicio(res.data);
       setDiagVal((res.data as any).diagnostico_mecanico ?? '');
       setRefacVal((res.data as any).refacciones_requeridas ?? '');
-    } catch {
-      // Sin red: intentar desde IndexedDB
+    } catch (err: any) {
+      // Si el servidor respondió (4xx/5xx) no usar cache — los datos en BD ya cambiaron
+      if (err?.response) return;
+      // Sin red real: intentar desde IndexedDB
       const local = await db.servicios.where('serverId').equals(servicioId).first();
       if (local) {
         // Construir un ServicioMotoDetail aproximado desde el cache
@@ -330,16 +332,19 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
       setAction(false);
       return;
     }
-    // Actualizar estado inmediatamente desde la respuesta (sin esperar reload)
-    if (result?.data && !afterClose) {
-      setServicio(result.data);
-    }
     setAction(false);
-    onUpdated();
-    if (afterClose) {
-      onClose();
+    if (!afterClose && result?.data) {
+      // La respuesta ya incluye el servicio actualizado — usarla directamente
+      // y omitir load() para evitar que IndexedDB sobreescriba el estado fresco
+      setServicio(result.data);
+      onUpdated();
     } else {
-      load().catch(() => {}); // Background refresh — no bloquea la UI
+      onUpdated();
+      if (afterClose) {
+        onClose();
+      } else {
+        load().catch(() => {});
+      }
     }
   };
 
