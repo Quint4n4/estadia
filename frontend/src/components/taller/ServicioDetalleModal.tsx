@@ -322,20 +322,25 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
       return;
     }
     setAction(true); setError('');
+    let result: any;
     try {
-      await fn();
+      result = await fn();
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Ocurrió un error.');
       setAction(false);
       return;
     }
+    // Actualizar estado inmediatamente desde la respuesta (sin esperar reload)
+    if (result?.data && !afterClose) {
+      setServicio(result.data);
+    }
+    setAction(false);
     onUpdated();
     if (afterClose) {
       onClose();
     } else {
-      await load().catch(() => {});
+      load().catch(() => {}); // Background refresh — no bloquea la UI
     }
-    setAction(false);
   };
 
   const handleAsignar             = () => run(() => tallerService.asignarMecanico(servicioId, { mecanico_id: Number(mecanicoId) }));
