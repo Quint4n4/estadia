@@ -21,6 +21,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Proactive token refresh every 50 minutes to avoid mid-action 401 delays
+  useEffect(() => {
+    if (!user) return;
+    const refresh = async () => {
+      const refreshToken = tokenStore.getRefresh();
+      if (!refreshToken) return;
+      try {
+        const response = await axios.post(`${BASE_URL}/auth/refresh/`, { refresh: refreshToken });
+        const { access, refresh: newRefresh } = response.data;
+        tokenStore.setAccess(access);
+        if (newRefresh) tokenStore.setRefresh(newRefresh);
+      } catch {
+        // Interceptor will handle the next 401 automatically
+      }
+    };
+    const interval = setInterval(refresh, 50 * 60 * 1000); // 50 minutes
+    return () => clearInterval(interval);
+  }, [user]);
+
   /**
    * On mount: try to restore the session for this tab.
    *

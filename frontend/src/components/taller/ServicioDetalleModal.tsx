@@ -322,9 +322,20 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
       return;
     }
     setAction(true); setError('');
-    try { await fn(); onUpdated(); afterClose ? onClose() : load(); }
-    catch (e: any) { setError(e?.response?.data?.message ?? 'Ocurrió un error.'); }
-    finally { setAction(false); }
+    try {
+      await fn();
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'Ocurrió un error.');
+      setAction(false);
+      return;
+    }
+    onUpdated();
+    if (afterClose) {
+      onClose();
+    } else {
+      await load().catch(() => {});
+    }
+    setAction(false);
   };
 
   const handleAsignar             = () => run(() => tallerService.asignarMecanico(servicioId, { mecanico_id: Number(mecanicoId) }));
