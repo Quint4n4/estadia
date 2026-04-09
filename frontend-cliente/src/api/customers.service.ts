@@ -3,7 +3,7 @@ import apiClient from './axios.config';
 import type { ClienteProfile, AuthTokens, MisComprasResponse, ServicioMotoCliente, SeguimientoData } from '../types/customer.types';
 
 // Cliente público sin headers de auth (para endpoints que no requieren autenticación)
-const PUBLIC_BASE_URL = import.meta.env.VITE_API_URL ?? '/api';
+const PUBLIC_BASE_URL = import.meta.env.VITE_API_URL ?? 'https://estadia-production-60af.up.railway.app/api';
 
 const publicClient = axios.create({
   baseURL: PUBLIC_BASE_URL,

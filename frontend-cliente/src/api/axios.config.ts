@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { tokenStore } from '../utils/tokenStore';
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? '/api';
+const BASE_URL = import.meta.env.VITE_API_URL ?? 'https://estadia-production-60af.up.railway.app/api';
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
