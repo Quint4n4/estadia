@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { salesService } from '../api/sales.service';
 import { tallerService } from '../api/taller.service';
 import { inventoryService } from '../api/inventory.service';
+import { catalogoServiciosService } from '../api/catalogo-servicios.service';
 import { NetworkStatusBadge } from '../components/common/NetworkStatusBadge';
 import { db } from '../db/localDB';
 import POSView from '../components/cashier/POSView';
@@ -68,6 +69,14 @@ const CashierPanel: React.FC = () => {
           });
           setAperturaId(ap.id);
           setCajaStatus('abierta');
+          // Actualizar cache de productos y catálogo mientras hay red
+          poblarCacheProductos();
+          catalogoServiciosService.getServicios({ activo: true })
+            .then((res: any) => {
+              const servicios = res?.data?.servicios ?? [];
+              try { localStorage.setItem('motoqfox_catalogo_servicios', JSON.stringify(servicios)); } catch {}
+            })
+            .catch(() => {});
         } else {
           // Servidor dice cerrada: limpiar cache
           await db.apertura_caja.where('sedeId').equals(sedeId).delete();
@@ -87,7 +96,7 @@ const CashierPanel: React.FC = () => {
           setCajaStatus('cerrada');
         }
       });
-  }, [sedeId]);
+  }, [sedeId, poblarCacheProductos]);
 
   const handleAbierta = async (id: number) => {
     setAperturaId(id);
