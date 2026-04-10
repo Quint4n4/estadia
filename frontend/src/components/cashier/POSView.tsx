@@ -5,6 +5,7 @@ import type { Producto, MarcaMoto, ModeloMoto, Categoria } from '../../types/inv
 import type { DisponibilidadServicioItem } from '../../types/catalogo-servicios.types';
 import { inventoryService } from '../../api/inventory.service';
 import { catalogoServiciosService } from '../../api/catalogo-servicios.service';
+import { db } from '../../db/localDB';
 import PaymentModal from './PaymentModal';
 import PedidoBodegaPanel from './PedidoBodegaPanel';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
@@ -153,7 +154,22 @@ const TextSearchMode: React.FC<{
         search: q, sede_id: sedeId, is_active: true, page_size: 40,
       });
       setResults(res.data.products);
-    } catch { setResults([]); }
+    } catch {
+      // Offline: buscar en IndexedDB local
+      const ql = q.toLowerCase();
+      const cached = await db.productos
+        .filter(p => p.isActive && (
+          p.name.toLowerCase().includes(ql) ||
+          p.sku.toLowerCase().includes(ql)
+        ))
+        .limit(40)
+        .toArray();
+      setResults(cached.map(p => ({
+        id: p.id, sku: p.sku, name: p.name, price: p.price,
+        categoria_name: p.categoria_name, is_active: p.isActive,
+        stock_items: [], codigo_barras: '',
+      } as any)));
+    }
     finally  { setSearching(false); }
   }, [sedeId]);
 

@@ -174,8 +174,18 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
     if (step !== 'SERVICIO' || catalogoServicios.length > 0) return;
     setLoadingCatalogo(true);
     catalogoServiciosService.getServicios({ activo: true })
-      .then((res: any) => setCatalogoServicios(res?.data?.servicios ?? []))
-      .catch(() => {})
+      .then((res: any) => {
+        const servicios = res?.data?.servicios ?? [];
+        setCatalogoServicios(servicios);
+        try { localStorage.setItem('motoqfox_catalogo_servicios', JSON.stringify(servicios)); } catch {}
+      })
+      .catch(() => {
+        // Offline: cargar desde localStorage
+        try {
+          const cached = JSON.parse(localStorage.getItem('motoqfox_catalogo_servicios') ?? '[]');
+          setCatalogoServicios(cached);
+        } catch { setCatalogoServicios([]); }
+      })
       .finally(() => setLoadingCatalogo(false));
   }, [step]);
 
@@ -330,7 +340,22 @@ const NuevoServicioModal: React.FC<Props> = ({ sedeId, onClose, onCreated }) => 
       try {
         const res = await inventoryService.listProducts({ search: valor, sede_id: sedeId, page_size: 8 });
         setResultadosRef(res.data?.products ?? []);
-      } catch { setResultadosRef([]); }
+      } catch {
+        // Offline: buscar en IndexedDB local
+        const ql = valor.toLowerCase();
+        const cached = await db.productos
+          .filter(p => p.isActive && (
+            p.name.toLowerCase().includes(ql) ||
+            p.sku.toLowerCase().includes(ql)
+          ))
+          .limit(8)
+          .toArray();
+        setResultadosRef(cached.map(p => ({
+          id: p.id, sku: p.sku, name: p.name, price: p.price,
+          categoria_name: p.categoria_name, is_active: p.isActive,
+          stock_items: [], codigo_barras: '',
+        } as any)));
+      }
       finally { setBuscandoRef(false); }
     }, 300);
   };
