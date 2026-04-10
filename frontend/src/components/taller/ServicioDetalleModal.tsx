@@ -13,6 +13,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTallerOffline } from '../../hooks/useTallerOffline';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { db } from '../../db/localDB';
+import type { LocalServicio } from '../../db/localDB';
 import type {
   ServicioMotoDetail,
   ServicioStatus,
@@ -145,26 +146,26 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, localId, onClose, o
   const isMecanico = role === 'MECANICO';
 
   /* ── Helper: construir ServicioMotoDetail aproximado desde cache local ── */
-  const buildFromLocal = (local: Awaited<ReturnType<typeof db.servicios.get>>, id: number) => ({
+  const buildFromLocal = (local: LocalServicio, id: number) => ({
     id,
-    folio:               id > 0 ? `SVC-${id}` : `OFFLINE-${local!.localId.slice(0,8)}`,
+    folio:               id > 0 ? `SVC-${id}` : `OFFLINE-${local.localId.slice(0,8)}`,
     sede_nombre:         '',
-    cliente_nombre:      local!.clienteNombre ?? '',
-    moto_display:        local!.motoDisplay ?? '',
+    cliente_nombre:      local.clienteNombre ?? '',
+    moto_display:        local.motoDisplay ?? '',
     cajero_nombre:       '',
     mecanico_nombre:     null,
-    status:              local!.status,
-    status_display:      local!.status,
-    pago_status:         local!.pagoStatus,
-    pago_status_display: local!.pagoStatus,
+    status:              local.status,
+    status_display:      local.status,
+    pago_status:         local.pagoStatus,
+    pago_status_display: local.pagoStatus,
     mano_de_obra:        '0',
     total_refacciones:   '0',
-    total:               local!.total ?? '0',
-    descripcion_problema: local!.descripcion,
+    total:               local.total ?? '0',
+    descripcion_problema: local.descripcion,
     tiempo_recibido:     0,
     tiene_extra_pendiente: false,
     archivado:           false,
-    fecha_recepcion:     local!.timestamp,
+    fecha_recepcion:     local.timestamp,
     fecha_entrega_estimada: null,
     fecha_archivado:     null,
     archivado_por_nombre: null,
@@ -172,7 +173,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, localId, onClose, o
     cliente:             null,
     cliente_email:       '',
     moto:                { id: 0, marca: '', modelo: '', anio: 0, numero_serie: '', placa: '' },
-    es_reparacion:       local!.payload?.es_reparacion ?? false,
+    es_reparacion:       local.payload?.es_reparacion ?? false,
     asignado_por_nombre: null,
     metodo_pago:         null,
     monto_pagado:        null,
@@ -180,7 +181,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, localId, onClose, o
     fecha_inicio:        null,
     fecha_listo:         null,
     fecha_entrega:       null,
-    notas_internas:      local!.payload?.notas_internas ?? '',
+    notas_internas:      local.payload?.notas_internas ?? '',
     diagnostico_mecanico:    '',
     refacciones_requeridas:  '',
     checklist_recepcion: [],
