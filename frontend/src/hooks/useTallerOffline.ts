@@ -75,6 +75,54 @@ export function useTallerOffline() {
   }, [isOnline]);
 
   /**
+   * Iniciar reparación (mecánico): ASIGNADO → EN_PROCESO.
+   * Online → API directa. Offline → actualiza cache local + encola.
+   */
+  const iniciarReparacion = useCallback(async (servicioId: number) => {
+    if (isOnline) return tallerService.iniciarReparacion(servicioId);
+
+    await db.servicios.where('serverId').equals(servicioId).modify({ status: 'EN_PROCESO' });
+    await db.syncQueue.add({
+      localId: crypto.randomUUID(),
+      payload: { tipo: 'iniciar_reparacion', servicioId },
+      timestamp: Date.now(), intentos: 0, status: 'pending',
+    });
+    return { success: true, offline: true, data: null as any };
+  }, [isOnline]);
+
+  /**
+   * Marcar lista para entregar (jefe/mecánico): EN_PROCESO → LISTA_PARA_ENTREGAR.
+   * Online → API directa. Offline → actualiza cache local + encola.
+   */
+  const marcarListaParaEntregar = useCallback(async (servicioId: number) => {
+    if (isOnline) return tallerService.marcarListaParaEntregar(servicioId);
+
+    await db.servicios.where('serverId').equals(servicioId).modify({ status: 'LISTA_PARA_ENTREGAR' });
+    await db.syncQueue.add({
+      localId: crypto.randomUUID(),
+      payload: { tipo: 'marcar_lista_entregar', servicioId },
+      timestamp: Date.now(), intentos: 0, status: 'pending',
+    });
+    return { success: true, offline: true, data: null as any };
+  }, [isOnline]);
+
+  /**
+   * Confirmar moto en mostrador (cajero): LISTA_PARA_ENTREGAR → LISTO.
+   * Online → API directa. Offline → actualiza cache local + encola.
+   */
+  const marcarEntregada = useCallback(async (servicioId: number) => {
+    if (isOnline) return tallerService.marcarEntregada(servicioId);
+
+    await db.servicios.where('serverId').equals(servicioId).modify({ status: 'LISTO' });
+    await db.syncQueue.add({
+      localId: crypto.randomUUID(),
+      payload: { tipo: 'marcar_entregada', servicioId },
+      timestamp: Date.now(), intentos: 0, status: 'pending',
+    });
+    return { success: true, offline: true, data: null as any };
+  }, [isOnline]);
+
+  /**
    * Actualizar diagnóstico del mecánico.
    * Online → API directa. Offline → encola.
    */
@@ -178,6 +226,15 @@ export function useTallerOffline() {
         } else if (p.tipo === 'actualizar_diagnostico') {
           await tallerService.actualizarDiagnostico(p.servicioId, p.datos);
           await db.syncQueue.delete(item.id!);
+        } else if (p.tipo === 'iniciar_reparacion') {
+          await tallerService.iniciarReparacion(p.servicioId);
+          await db.syncQueue.delete(item.id!);
+        } else if (p.tipo === 'marcar_lista_entregar') {
+          await tallerService.marcarListaParaEntregar(p.servicioId);
+          await db.syncQueue.delete(item.id!);
+        } else if (p.tipo === 'marcar_entregada') {
+          await tallerService.marcarEntregada(p.servicioId);
+          await db.syncQueue.delete(item.id!);
         }
       } catch {
         const nuevos = (item.intentos ?? 0) + 1;
@@ -205,6 +262,9 @@ export function useTallerOffline() {
   return {
     crearServicio,
     entregarServicio,
+    iniciarReparacion,
+    marcarListaParaEntregar,
+    marcarEntregada,
     actualizarDiagnostico,
     cacheServicios,
     sincronizarPendientesTaller,

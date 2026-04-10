@@ -42,6 +42,42 @@ export default defineConfig({
               expiration: { maxEntries: 50, maxAgeSeconds: 24 * 60 * 60 },
             },
           },
+          {
+            urlPattern: /\/api\/taller\//,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-taller',
+              expiration: { maxEntries: 300, maxAgeSeconds: 5 * 60 },
+              networkTimeoutSeconds: 5,
+            },
+          },
+          {
+            urlPattern: /\/api\/pedidos\//,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-pedidos',
+              expiration: { maxEntries: 100, maxAgeSeconds: 2 * 60 },
+              networkTimeoutSeconds: 4,
+            },
+          },
+          {
+            urlPattern: /\/api\/sales\//,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-sales',
+              expiration: { maxEntries: 100, maxAgeSeconds: 5 * 60 },
+              networkTimeoutSeconds: 5,
+            },
+          },
+          {
+            urlPattern: /\/api\/catalogo-servicios\//,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-catalogo',
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 },
+              networkTimeoutSeconds: 5,
+            },
+          },
         ],
       },
     }),

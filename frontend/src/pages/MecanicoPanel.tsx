@@ -302,7 +302,7 @@ const BikeIcon: React.FC<{ size?: number; color?: string }> = ({ size = 36, colo
 const MecanicoPanel: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { cacheServicios } = useTallerOffline();
+  const { cacheServicios, marcarListaParaEntregar: marcarListaOffline } = useTallerOffline();
 
   const [servicios,   setServicios]   = useState<ServicioMotoList[]>([]);
   const [loading,     setLoading]     = useState(true);
@@ -354,7 +354,7 @@ const MecanicoPanel: React.FC = () => {
 
   const handleListaParaEntregar = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    try { await tallerService.marcarListaParaEntregar(id); cargar(); } catch { /* silencioso */ }
+    try { await marcarListaOffline(id); cargar(); } catch { /* silencioso */ }
   };
 
   // ─── Barra de resumen numérico ─────────────────────────────────────────────

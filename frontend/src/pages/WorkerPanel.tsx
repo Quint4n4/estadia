@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { MapPin, Package, LogOut, Wifi, WifiOff, CheckCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { pedidosService } from '../api/pedidos.service';
+import { db } from '../db/localDB';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import type { PedidoBodega } from '../types/pedidos.types';
 import '../styles/WorkerPanel.css';
 
@@ -11,6 +13,7 @@ const POLL_INTERVAL = 6000; // 6 segundos
 const WorkerPanel: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { isOnline: networkOnline } = useNetworkStatus();
 
   const [pedidos,      setPedidos]      = useState<PedidoBodega[]>([]);
   const [loading,      setLoading]      = useState(true);
@@ -23,13 +26,19 @@ const WorkerPanel: React.FC = () => {
   const fetchPedidos = useCallback(async (isMounted: () => boolean) => {
     try {
       const data = await pedidosService.listar();
-      if (isMounted()) {
-        setPedidos(data);
-        setOnline(true);
-        setLastUpdate(new Date());
-      }
+      if (!isMounted()) return;
+      setPedidos(data);
+      setOnline(true);
+      setLastUpdate(new Date());
+      // Guardar en cache para uso offline
+      const ahora = new Date().toISOString();
+      await db.pedidos.bulkPut(data.map(p => ({ ...p, cachedAt: ahora })));
     } catch {
-      if (isMounted()) setOnline(false);
+      if (!isMounted()) return;
+      setOnline(false);
+      // Intentar cargar desde cache local
+      const cached = await db.pedidos.orderBy('id').reverse().toArray();
+      if (isMounted() && cached.length > 0) setPedidos(cached);
     } finally {
       if (isMounted()) setLoading(false);
     }
@@ -48,13 +57,38 @@ const WorkerPanel: React.FC = () => {
     };
   }, [fetchPedidos]);
 
-  // UX-022: marcar pedido como completado via API, con fallback local
+  // Auto-sync pedidos completados offline cuando vuelve la red
+  useEffect(() => {
+    if (!networkOnline) return;
+    db.syncQueue
+      .where('status').equals('pending')
+      .filter(i => (i.payload as any)?.tipo === 'marcar_pedido_completado')
+      .toArray()
+      .then(async pendientes => {
+        for (const item of pendientes) {
+          try {
+            const p = item.payload as { tipo: string; pedidoId: number };
+            await pedidosService.marcarEntregado(p.pedidoId);
+            await db.syncQueue.delete(item.id!);
+          } catch { /* reintento en siguiente reconexión */ }
+        }
+      });
+  }, [networkOnline]);
+
+  // UX-022: marcar pedido como completado via API, con fallback offline
   const marcarCompletado = useCallback(async (pedidoId: number) => {
     setCompletando(prev => new Set([...prev, pedidoId]));
     try {
       await pedidosService.marcarEntregado(pedidoId);
     } catch {
-      // Si falla la API igual marcamos localmente para no bloquear al worker
+      // Sin red: encolar para sincronizar al reconectar
+      await db.syncQueue.add({
+        localId:   crypto.randomUUID(),
+        payload:   { tipo: 'marcar_pedido_completado', pedidoId } as any,
+        timestamp: Date.now(),
+        intentos:  0,
+        status:    'pending',
+      });
     } finally {
       setCompletando(prev => { const s = new Set(prev); s.delete(pedidoId); return s; });
       setCompletados(prev => new Set([...prev, pedidoId]));

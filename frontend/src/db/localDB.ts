@@ -1,6 +1,11 @@
 import Dexie, { type Table } from 'dexie';
 import type { CartItem, MetodoPago, VentaPayload } from '../types/sales.types';
 import type { ServicioCreatePayload, EntregarServicioPayload, ServicioStatus } from '../types/taller.types';
+import type { PedidoBodega } from '../types/pedidos.types';
+
+export interface LocalPedido extends PedidoBodega {
+  cachedAt: string;
+}
 
 // ── Tipos locales — POS ────────────────────────────────────────────────────────
 
@@ -81,10 +86,14 @@ export interface LocalAperturaCaja {
 // ── SyncQueue genérico ─────────────────────────────────────────────────────────
 
 export type SyncQueuePayload =
-  | { tipo: 'venta';                  datos: VentaPayload }
-  | { tipo: 'crear_servicio';         datos: ServicioCreatePayload;   localServicioId: string }
-  | { tipo: 'entregar_servicio';      datos: EntregarServicioPayload; servicioId: number }
-  | { tipo: 'actualizar_diagnostico'; datos: { diagnostico_mecanico?: string; refacciones_requeridas?: string }; servicioId: number }
+  | { tipo: 'venta';                    datos: VentaPayload }
+  | { tipo: 'crear_servicio';           datos: ServicioCreatePayload;   localServicioId: string }
+  | { tipo: 'entregar_servicio';        datos: EntregarServicioPayload; servicioId: number }
+  | { tipo: 'actualizar_diagnostico';   datos: { diagnostico_mecanico?: string; refacciones_requeridas?: string }; servicioId: number }
+  | { tipo: 'iniciar_reparacion';       servicioId: number }
+  | { tipo: 'marcar_lista_entregar';    servicioId: number }
+  | { tipo: 'marcar_entregada';         servicioId: number }
+  | { tipo: 'marcar_pedido_completado'; pedidoId: number }
 
 export interface SyncQueueItem {
   id?:       number;   // autoincrement
@@ -106,6 +115,7 @@ class MotoQFoxDB extends Dexie {
   clientes_taller!: Table<LocalClienteTaller,  number>;
   motos_cliente!:   Table<LocalMotoCliente,    number>;
   apertura_caja!:   Table<LocalAperturaCaja,   number>;
+  pedidos!:         Table<LocalPedido,         number>;
 
   constructor() {
     super('MotoQFoxDB');
@@ -126,6 +136,18 @@ class MotoQFoxDB extends Dexie {
       clientes_taller: 'id, telefono',
       motos_cliente:   'id, clienteId',
       apertura_caja:   'id, sedeId, cajeroId, status',
+    });
+
+    // v3: tabla pedidos para WorkerPanel offline
+    this.version(3).stores({
+      ventas:          'localId, status, sedeId, timestamp',
+      productos:       'id, sku, name, isActive',
+      syncQueue:       '++id, localId, status, timestamp',
+      servicios:       'localId, syncStatus, sedeId, timestamp, serverId',
+      clientes_taller: 'id, telefono',
+      motos_cliente:   'id, clienteId',
+      apertura_caja:   'id, sedeId, cajeroId, status',
+      pedidos:         'id, cachedAt',
     });
   }
 }

@@ -98,7 +98,7 @@ const InfoField = ({ label, value }: { label: string; value?: string | null }) =
 const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated }) => {
   const { user } = useAuth();
   const role = user?.role ?? '';
-  const { entregarServicio, actualizarDiagnostico } = useTallerOffline();
+  const { entregarServicio, actualizarDiagnostico, iniciarReparacion, marcarListaParaEntregar, marcarEntregada } = useTallerOffline();
   const { isOffline } = useNetworkStatus();
 
   const [servicio,     setServicio]     = useState<ServicioMotoDetail | null>(null);
@@ -350,8 +350,8 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
 
   const handleAsignar             = () => run(() => tallerService.asignarMecanico(servicioId, { mecanico_id: Number(mecanicoId) }));
   const handleSubmitDiagnostico   = () => run(() => tallerService.submitDiagnostico(servicioId));
-  const handleListaParaEntregar   = () => run(() => tallerService.marcarListaParaEntregar(servicioId));
-  const handleMarcarEntregada     = () => run(() => tallerService.marcarEntregada(servicioId));
+  const handleListaParaEntregar   = () => run(() => marcarListaParaEntregar(servicioId));
+  const handleMarcarEntregada     = () => run(() => marcarEntregada(servicioId));
   const handleEntregar = async () => {
     const yaPageado = servicio?.pago_status === 'PAGADO';
     const payload = yaPageado
