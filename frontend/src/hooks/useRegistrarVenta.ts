@@ -67,8 +67,8 @@ export function useRegistrarVenta() {
     for (const item of ventasPending) {
       try {
         await db.syncQueue.update(item.id!, { status: 'processing' });
-        const p = resolvePayload(item);
-        const res = await salesService.createVenta(p.datos as VentaPayload);
+        const p = resolvePayload(item) as { tipo: 'venta'; datos: VentaPayload };
+        const res = await salesService.createVenta(p.datos);
         if (res.success) {
           await db.ventas.update(item.localId, {
             status:   'synced',

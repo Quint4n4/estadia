@@ -98,7 +98,7 @@ const InfoField = ({ label, value }: { label: string; value?: string | null }) =
 const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated }) => {
   const { user } = useAuth();
   const role = user?.role ?? '';
-  const { entregarServicio, actualizarDiagnostico, iniciarReparacion, marcarListaParaEntregar, marcarEntregada } = useTallerOffline();
+  const { entregarServicio, actualizarDiagnostico, marcarListaParaEntregar, marcarEntregada } = useTallerOffline();
   const { isOffline } = useNetworkStatus();
 
   const [servicio,     setServicio]     = useState<ServicioMotoDetail | null>(null);
