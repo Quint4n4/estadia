@@ -200,8 +200,8 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, localId, onClose, o
         const local = await db.servicios.get(localId);
         if (local) {
           setServicio(buildFromLocal(local, 0));
-          setDiagVal(local.payload?.diagnostico_mecanico ?? '');
-          setRefacVal(local.payload?.refacciones_requeridas ?? '');
+          setDiagVal((local.payload as any)?.diagnostico_mecanico ?? '');
+          setRefacVal((local.payload as any)?.refacciones_requeridas ?? '');
         } else {
           setError('No se encontraron datos locales para este servicio.');
         }
@@ -222,8 +222,8 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, localId, onClose, o
         : await db.servicios.where('serverId').equals(servicioId).first();
       if (local) {
         setServicio(buildFromLocal(local, servicioId));
-        setDiagVal(local.payload?.diagnostico_mecanico ?? '');
-        setRefacVal(local.payload?.refacciones_requeridas ?? '');
+        setDiagVal((local.payload as any)?.diagnostico_mecanico ?? '');
+        setRefacVal((local.payload as any)?.refacciones_requeridas ?? '');
       } else {
         setError('Sin conexión y no hay datos en cache para este servicio.');
       }
