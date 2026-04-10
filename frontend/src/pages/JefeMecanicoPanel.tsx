@@ -196,8 +196,9 @@ const JefeMecanicoPanel: React.FC = () => {
       // Sin red: cargar desde IndexedDB
       const locales = await db.servicios.where('sedeId').equals(sedeId).toArray();
       if (locales.length > 0) {
-        setServicios(locales.map(s => ({
-          id: s.serverId ?? 0, folio: s.serverId ? `SVC-${s.serverId}` : `OFFLINE-${s.localId.slice(0,8)}`,
+        setServicios(locales.map((s, idx) => ({
+          id: s.serverId ?? -(idx + 1),
+          folio: s.serverId ? `SVC-${s.serverId}` : `OFFLINE-${s.localId.slice(0,8)}`,
           sede_nombre: '', cliente_nombre: s.clienteNombre ?? '', moto_display: s.motoDisplay ?? '',
           cajero_nombre: '', mecanico_nombre: null, status: s.status, status_display: s.status,
           pago_status: s.pagoStatus, pago_status_display: s.pagoStatus,
@@ -205,6 +206,7 @@ const JefeMecanicoPanel: React.FC = () => {
           descripcion_problema: s.descripcion, tiempo_recibido: 0, tiene_extra_pendiente: false,
           archivado: false, fecha_recepcion: s.timestamp,
           fecha_entrega_estimada: null, fecha_archivado: null, archivado_por_nombre: null, diagnostico_listo: false,
+          _localId: s.localId,
         } as ServicioMotoList)));
       }
     }
@@ -350,13 +352,18 @@ const JefeMecanicoPanel: React.FC = () => {
       </div>
 
       {/* Modal detalle */}
-      {detalleId !== null && (
-        <ServicioDetalleModal
-          servicioId={detalleId}
-          onClose={() => setDetalleId(null)}
-          onUpdated={cargar}
-        />
-      )}
+      {detalleId !== null && (() => {
+        const detalleServicio = servicios.find(s => s.id === detalleId);
+        const detalleLocalId  = detalleServicio ? (detalleServicio as any)._localId as string | undefined : undefined;
+        return (
+          <ServicioDetalleModal
+            servicioId={Math.max(detalleId, 0)}
+            localId={detalleLocalId}
+            onClose={() => setDetalleId(null)}
+            onUpdated={cargar}
+          />
+        );
+      })()}
     </div>
   );
 };

@@ -236,7 +236,8 @@ export function useTallerOffline() {
           await tallerService.marcarEntregada(p.servicioId);
           await db.syncQueue.delete(item.id!);
         }
-      } catch {
+      } catch (e: any) {
+        console.error(`[sync taller] Error en ${resolvePayload(item).tipo}:`, e?.response?.data ?? e?.message);
         const nuevos = (item.intentos ?? 0) + 1;
         await db.syncQueue.update(item.id!, {
           status:   nuevos >= 5 ? 'error' : 'pending',

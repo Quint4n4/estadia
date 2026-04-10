@@ -167,7 +167,8 @@ const TextSearchMode: React.FC<{
       setResults(cached.map(p => ({
         id: p.id, sku: p.sku, name: p.name, price: p.price,
         categoria_name: p.categoria_name, is_active: p.isActive,
-        stock_items: [], codigo_barras: '',
+        stock_items: [{ sede_id: sedeId, quantity: p.stock_qty ?? 0 }],
+        codigo_barras: '',
       } as any)));
     }
     finally  { setSearching(false); }

@@ -32,6 +32,7 @@ export interface LocalProducto {
   price:          string;
   categoria_name: string | null;
   isActive:       boolean;
+  stock_qty?:     number;   // cantidad disponible en la sede del usuario
   cachedAt:       string;
 }
 

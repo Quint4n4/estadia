@@ -41,13 +41,14 @@ const CashierPanel: React.FC = () => {
       const res = await inventoryService.listProducts({ is_active: true, page_size: 500, sede_id: sedeId });
       const productos = res.data?.products ?? [];
       await db.productos.bulkPut(productos.map(p => ({
-        id:            p.id,
-        sku:           p.sku,
-        name:          p.name,
-        price:         p.price,
+        id:             p.id,
+        sku:            p.sku,
+        name:           p.name,
+        price:          p.price,
         categoria_name: p.categoria_name ?? null,
-        isActive:      p.is_active,
-        cachedAt:      new Date().toISOString(),
+        isActive:       p.is_active,
+        stock_qty:      p.stock_items?.find(s => s.sede_id === sedeId)?.quantity ?? 0,
+        cachedAt:       new Date().toISOString(),
       })));
     } catch { /* usar caché existente si falla */ }
   }, [sedeId]);

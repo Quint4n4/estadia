@@ -24,6 +24,7 @@ import TallerTicketModal from './TallerTicketModal';
 
 interface Props {
   servicioId: number;
+  localId?:   string;   // presente para servicios offline no sincronizados (servicioId=0)
   onClose: () => void;
   onUpdated: () => void;
 }
@@ -95,7 +96,7 @@ const InfoField = ({ label, value }: { label: string; value?: string | null }) =
 );
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated }) => {
+const ServicioDetalleModal: React.FC<Props> = ({ servicioId, localId, onClose, onUpdated }) => {
   const { user } = useAuth();
   const role = user?.role ?? '';
   const { entregarServicio, actualizarDiagnostico, marcarListaParaEntregar, marcarEntregada } = useTallerOffline();
@@ -143,10 +144,70 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
   const isJefe     = ['JEFE_MECANICO', 'ENCARGADO', 'ADMINISTRATOR'].includes(role);
   const isMecanico = role === 'MECANICO';
 
+  /* ── Helper: construir ServicioMotoDetail aproximado desde cache local ── */
+  const buildFromLocal = (local: Awaited<ReturnType<typeof db.servicios.get>>, id: number) => ({
+    id,
+    folio:               id > 0 ? `SVC-${id}` : `OFFLINE-${local!.localId.slice(0,8)}`,
+    sede_nombre:         '',
+    cliente_nombre:      local!.clienteNombre ?? '',
+    moto_display:        local!.motoDisplay ?? '',
+    cajero_nombre:       '',
+    mecanico_nombre:     null,
+    status:              local!.status,
+    status_display:      local!.status,
+    pago_status:         local!.pagoStatus,
+    pago_status_display: local!.pagoStatus,
+    mano_de_obra:        '0',
+    total_refacciones:   '0',
+    total:               local!.total ?? '0',
+    descripcion_problema: local!.descripcion,
+    tiempo_recibido:     0,
+    tiene_extra_pendiente: false,
+    archivado:           false,
+    fecha_recepcion:     local!.timestamp,
+    fecha_entrega_estimada: null,
+    fecha_archivado:     null,
+    archivado_por_nombre: null,
+    diagnostico_listo:   false,
+    cliente:             null,
+    cliente_email:       '',
+    moto:                { id: 0, marca: '', modelo: '', anio: 0, numero_serie: '', placa: '' },
+    es_reparacion:       local!.payload?.es_reparacion ?? false,
+    asignado_por_nombre: null,
+    metodo_pago:         null,
+    monto_pagado:        null,
+    cambio:              null,
+    fecha_inicio:        null,
+    fecha_listo:         null,
+    fecha_entrega:       null,
+    notas_internas:      local!.payload?.notas_internas ?? '',
+    diagnostico_mecanico:    '',
+    refacciones_requeridas:  '',
+    checklist_recepcion: [],
+    imagenes:            [],
+    items:               [],
+    solicitudes_extra:   [],
+  } as any);
+
   /* ── Carga del servicio ── */
   const load = async () => {
     try {
       setLoading(true);
+
+      // Servicio offline (aún no sincronizado): cargar directo de IndexedDB
+      if (servicioId === 0 && localId) {
+        const local = await db.servicios.get(localId);
+        if (local) {
+          setServicio(buildFromLocal(local, 0));
+          setDiagVal(local.payload?.diagnostico_mecanico ?? '');
+          setRefacVal(local.payload?.refacciones_requeridas ?? '');
+        } else {
+          setError('No se encontraron datos locales para este servicio.');
+        }
+        setLoading(false);
+        return;
+      }
+
       const res = await tallerService.getServicio(servicioId);
       setServicio(res.data);
       setDiagVal((res.data as any).diagnostico_mecanico ?? '');
@@ -155,53 +216,13 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
       // Si el servidor respondió (4xx/5xx) no usar cache — los datos en BD ya cambiaron
       if (err?.response) return;
       // Sin red real: intentar desde IndexedDB
-      const local = await db.servicios.where('serverId').equals(servicioId).first();
+      const local = localId
+        ? await db.servicios.get(localId)
+        : await db.servicios.where('serverId').equals(servicioId).first();
       if (local) {
-        // Construir un ServicioMotoDetail aproximado desde el cache
-        setServicio({
-          id:                  servicioId,
-          folio:               `SVC-${servicioId}`,
-          sede_nombre:         '',
-          cliente_nombre:      local.clienteNombre ?? '',
-          moto_display:        local.motoDisplay ?? '',
-          cajero_nombre:       '',
-          mecanico_nombre:     null,
-          status:              local.status,
-          status_display:      local.status,
-          pago_status:         local.pagoStatus,
-          pago_status_display: local.pagoStatus,
-          mano_de_obra:        '0',
-          total_refacciones:   '0',
-          total:               local.total ?? '0',
-          descripcion_problema: local.descripcion,
-          tiempo_recibido:     0,
-          tiene_extra_pendiente: false,
-          archivado:           false,
-          fecha_recepcion:     local.timestamp,
-          fecha_entrega_estimada: null,
-          fecha_archivado:     null,
-          archivado_por_nombre: null,
-          diagnostico_listo:   false,
-          // campos de detalle
-          cliente:             null,
-          cliente_email:       '',
-          moto:                { id: 0, marca: '', modelo: '', anio: 0, numero_serie: '', placa: '' },
-          es_reparacion:       local.payload?.es_reparacion ?? false,
-          asignado_por_nombre: null,
-          metodo_pago:         null,
-          monto_pagado:        null,
-          cambio:              null,
-          fecha_inicio:        null,
-          fecha_listo:         null,
-          fecha_entrega:       null,
-          notas_internas:      local.payload?.notas_internas ?? '',
-          diagnostico_mecanico:    '',
-          refacciones_requeridas:  '',
-          checklist_recepcion: [],
-          imagenes:            [],
-          items:               [],
-          solicitudes_extra:   [],
-        } as any);
+        setServicio(buildFromLocal(local, servicioId));
+        setDiagVal(local.payload?.diagnostico_mecanico ?? '');
+        setRefacVal(local.payload?.refacciones_requeridas ?? '');
       } else {
         setError('Sin conexión y no hay datos en cache para este servicio.');
       }
@@ -210,7 +231,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, onClose, onUpdated 
     }
   };
 
-  useEffect(() => { load(); }, [servicioId]);
+  useEffect(() => { load(); }, [servicioId, localId]);
 
   /* ── Cargar mecánicos y jefes mecánicos cuando el jefe ve un servicio RECIBIDO ── */
   useEffect(() => {
