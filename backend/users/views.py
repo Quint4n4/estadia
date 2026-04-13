@@ -4,7 +4,7 @@ Views for User Authentication and Management
 import threading
 from datetime import timedelta
 from django.contrib.auth import authenticate
-from django.core.mail import send_mail
+import resend
 from django.db.models import ProtectedError
 from django.db.models import Q, F, Sum
 from django.utils import timezone
@@ -58,12 +58,14 @@ def _send_welcome_email(user, plain_password: str = None) -> None:
     """
     from django.conf import settings
 
-    # Guard: skip if no email backend is configured
-    if not getattr(settings, 'SENDGRID_API_KEY', '') and not getattr(settings, 'EMAIL_HOST_USER', ''):
-        print('[EMAIL] Sin configuración de email. Se omite el correo de bienvenida.')
+    # Guard: skip if Resend is not configured
+    api_key = getattr(settings, 'RESEND_API_KEY', '')
+    if not api_key:
+        print('[EMAIL] RESEND_API_KEY no configurado. Se omite el correo de bienvenida.')
         return
 
-    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', getattr(settings, 'EMAIL_HOST_USER', ''))
+    resend.api_key = api_key
+    from_email     = getattr(settings, 'DEFAULT_FROM_EMAIL', 'MotoQFox <onboarding@resend.dev>')
 
     sede_name    = user.sede.name if user.sede else 'Sin sede asignada'
     role_display = user.get_role_display()
@@ -155,14 +157,13 @@ def _send_welcome_email(user, plain_password: str = None) -> None:
     """
 
     try:
-        send_mail(
-            subject=subject,
-            message=text_body,
-            from_email=from_email,
-            recipient_list=[user.email],
-            html_message=html_body,
-            fail_silently=False,
-        )
+        resend.Emails.send({
+            'from':    from_email,
+            'to':      [user.email],
+            'subject': subject,
+            'html':    html_body,
+            'text':    text_body,
+        })
         print(f'[EMAIL] Welcome email sent to {user.email}')
     except Exception as exc:
         print(f'[EMAIL ERROR] Could not send welcome email to {user.email}: {exc}')
@@ -172,12 +173,14 @@ def _send_reset_email(user, token_uuid) -> None:
     """Send password-reset link to user."""
     from django.conf import settings
 
-    if not getattr(settings, 'SENDGRID_API_KEY', '') and not getattr(settings, 'EMAIL_HOST_USER', ''):
-        print('[EMAIL] Sin configuración de email. Se omite el correo de restablecimiento.')
+    api_key = getattr(settings, 'RESEND_API_KEY', '')
+    if not api_key:
+        print('[EMAIL] RESEND_API_KEY no configurado. Se omite el correo de restablecimiento.')
         return
 
-    from_email   = getattr(settings, 'DEFAULT_FROM_EMAIL', getattr(settings, 'EMAIL_HOST_USER', ''))
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+    resend.api_key = api_key
+    from_email     = getattr(settings, 'DEFAULT_FROM_EMAIL', 'MotoQFox <onboarding@resend.dev>')
+    frontend_url   = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
     reset_link   = f'{frontend_url}/reset-password?token={token_uuid}'
 
     subject = 'MotoQFox - Restablecer tu contraseña'
@@ -233,14 +236,13 @@ def _send_reset_email(user, token_uuid) -> None:
     """
 
     try:
-        send_mail(
-            subject=subject,
-            message=text_body,
-            from_email=from_email,
-            recipient_list=[user.email],
-            html_message=html_body,
-            fail_silently=False,
-        )
+        resend.Emails.send({
+            'from':    from_email,
+            'to':      [user.email],
+            'subject': subject,
+            'html':    html_body,
+            'text':    text_body,
+        })
         print(f'[EMAIL] Reset email sent to {user.email}')
     except Exception as exc:
         print(f'[EMAIL ERROR] Could not send reset email to {user.email}: {exc}')

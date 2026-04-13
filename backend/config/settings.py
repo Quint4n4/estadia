@@ -43,7 +43,6 @@ INSTALLED_APPS = [
     'corsheaders',
     'cloudinary_storage',
     'cloudinary',
-    'anymail',
 
     # Local apps
     'users',
@@ -231,19 +230,11 @@ CORS_ALLOWED_ORIGINS = os.environ.get(
 CORS_ALLOW_CREDENTIALS = True
 
 
-# ── Email — SendGrid via HTTPS (Railway bloquea SMTP/587) ────────────────────
-SENDGRID_API_KEY = env('SENDGRID_API_KEY', default='')
+# ── Email — Resend via HTTPS (Railway bloquea SMTP/587) ──────────────────────
+RESEND_API_KEY     = env('RESEND_API_KEY',     default='')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='MotoQFox <onboarding@resend.dev>')
 
-if SENDGRID_API_KEY:
-    EMAIL_BACKEND      = 'anymail.backends.sendgrid.EmailBackend'
-    ANYMAIL            = { 'SENDGRID_API_KEY': SENDGRID_API_KEY }
-    DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default=env('EMAIL_HOST_USER', default='apprefaccionaria.motos@gmail.com'))
-else:
-    # Fallback: consola en desarrollo / sin credenciales
-    EMAIL_BACKEND      = 'django.core.mail.backends.console.EmailBackend'
-    DEFAULT_FROM_EMAIL = 'MotoQFox <noreply@motoqfox.com>'
-
-# Mantenemos EMAIL_HOST_USER para compatibilidad con el guard en views.py
+# Mantenemos estas vars para compatibilidad con guards en views.py
 EMAIL_HOST_USER     = env('EMAIL_HOST_USER',     default='')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 
