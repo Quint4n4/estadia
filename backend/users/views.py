@@ -5,7 +5,7 @@ import threading
 from datetime import timedelta
 from django.contrib.auth import authenticate
 from django.core.mail import send_mail
-from django.db import ProtectedError
+from django.db.models import ProtectedError
 from django.db.models import Q, F, Sum
 from django.utils import timezone
 from rest_framework import status
