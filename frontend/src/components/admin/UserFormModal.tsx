@@ -226,6 +226,7 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         const data = err.response?.data;
+        console.error('[UserFormModal] Error del servidor:', err.response?.status, data);
         if (data?.errors) {
           const mapped: Record<string, string> = {};
           for (const [k, v] of Object.entries(data.errors)) {
@@ -233,7 +234,7 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
           }
           setErrors(mapped);
         } else {
-          setGlobalError(data?.message ?? 'Ocurrió un error inesperado');
+          setGlobalError(data?.message ?? `Error ${err.response?.status ?? ''}: Ocurrió un error inesperado`);
         }
       } else {
         console.error('[UserFormModal] Error inesperado:', err);

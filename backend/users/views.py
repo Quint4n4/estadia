@@ -300,14 +300,19 @@ def _sede_snapshot(sede):
 def _can_manage_users(requester, target=None):
     """
     ADMINISTRATOR  — can manage anyone.
-    ENCARGADO      — can manage WORKER/CASHIER of their own sede only.
+    ENCARGADO      — can manage JEFE_MECANICO/MECANICO/WORKER/CASHIER of their own sede only.
     """
     if requester.is_administrator:
         return True
     if requester.is_encargado:
         if target is None:
             return True  # list / create — scope enforced separately
-        manageable = (CustomUser.Role.WORKER, CustomUser.Role.CASHIER)
+        manageable = (
+            CustomUser.Role.JEFE_MECANICO,
+            CustomUser.Role.MECANICO,
+            CustomUser.Role.WORKER,
+            CustomUser.Role.CASHIER,
+        )
         return target.role in manageable and target.sede_id == requester.sede_id
     return False
 
@@ -809,7 +814,12 @@ class UserListCreateView(APIView):
         if request.user.is_encargado:
             qs = qs.filter(
                 sede=request.user.sede,
-                role__in=[CustomUser.Role.WORKER, CustomUser.Role.CASHIER],
+                role__in=[
+                    CustomUser.Role.JEFE_MECANICO,
+                    CustomUser.Role.MECANICO,
+                    CustomUser.Role.WORKER,
+                    CustomUser.Role.CASHIER,
+                ],
             )
 
         # Filters
