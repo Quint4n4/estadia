@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { usersService } from '../../api/users.service';
 import { branchesService } from '../../api/branches.service';
+import { useAuth } from '../../contexts/AuthContext';
 import type {
   User,
   SedeDetail,
@@ -84,6 +85,12 @@ const EyeIcon: React.FC<{ open: boolean }> = ({ open }) =>
 
 const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
   const isEdit = !!user;
+  const { user: currentUser } = useAuth();
+
+  // El administrador no puede crear/asignar otro administrador
+  const availableRoles = ROLES.filter(r =>
+    !(currentUser?.role === 'ADMINISTRATOR' && r.value === 'ADMINISTRATOR' && !isEdit)
+  );
 
   const [form, setForm] = useState({
     email:            user?.email ?? '',
@@ -131,8 +138,12 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
       errs.last_name = 'Solo se permiten letras';
     }
 
-    if (form.phone && !PHONE_RE.test(form.phone)) {
-      errs.phone = 'Formato inválido (solo números, espacios, +, -, paréntesis)';
+    if (form.phone) {
+      if (!PHONE_RE.test(form.phone)) {
+        errs.phone = 'Formato inválido (solo números, espacios, +, -, paréntesis)';
+      } else if (form.phone.replace(/\D/g, '').length > 10) {
+        errs.phone = 'Máximo 10 dígitos';
+      }
     }
 
     if (!isEdit) {
@@ -269,7 +280,8 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
               type="tel"
               value={form.phone}
               onChange={(e) => change('phone', e.target.value)}
-              placeholder="Ej: +52 55 1234 5678"
+              placeholder="Ej: 5512345678"
+              maxLength={15}
             />
             {errors.phone && <span className="field-error">{errors.phone}</span>}
           </div>
@@ -282,7 +294,7 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
                 value={form.role}
                 onChange={(e) => change('role', e.target.value as UserRole)}
               >
-                {ROLES.map((r) => (
+                {availableRoles.map((r) => (
                   <option key={r.value} value={r.value}>{r.label}</option>
                 ))}
               </select>

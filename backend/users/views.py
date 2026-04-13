@@ -1,9 +1,11 @@
 """
 Views for User Authentication and Management
 """
+import threading
 from datetime import timedelta
 from django.contrib.auth import authenticate
 from django.core.mail import send_mail
+from django.db import ProtectedError
 from django.db.models import Q, F, Sum
 from django.utils import timezone
 from rest_framework import status
@@ -55,6 +57,14 @@ def _send_welcome_email(user, plain_password: str = None) -> None:
     is intentionally ignored.
     """
     from django.conf import settings
+
+    # Guard: skip silently if SMTP is not configured
+    if not getattr(settings, 'EMAIL_HOST_USER', ''):
+        print('[EMAIL] EMAIL_HOST_USER no configurado. Se omite el correo de bienvenida.')
+        return
+
+    # Use the authenticated Gmail account as the sender to avoid rejection
+    from_email = getattr(settings, 'EMAIL_HOST_USER', '')
 
     sede_name    = user.sede.name if user.sede else 'Sin sede asignada'
     role_display = user.get_role_display()
@@ -149,7 +159,7 @@ def _send_welcome_email(user, plain_password: str = None) -> None:
         send_mail(
             subject=subject,
             message=text_body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
+            from_email=from_email,
             recipient_list=[user.email],
             html_message=html_body,
             fail_silently=False,
@@ -162,6 +172,12 @@ def _send_welcome_email(user, plain_password: str = None) -> None:
 def _send_reset_email(user, token_uuid) -> None:
     """Send password-reset link to user."""
     from django.conf import settings
+
+    if not getattr(settings, 'EMAIL_HOST_USER', ''):
+        print('[EMAIL] EMAIL_HOST_USER no configurado. Se omite el correo de restablecimiento.')
+        return
+
+    from_email   = getattr(settings, 'EMAIL_HOST_USER', '')
     frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
     reset_link   = f'{frontend_url}/reset-password?token={token_uuid}'
 
@@ -221,7 +237,7 @@ def _send_reset_email(user, token_uuid) -> None:
         send_mail(
             subject=subject,
             message=text_body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
+            from_email=from_email,
             recipient_list=[user.email],
             html_message=html_body,
             fail_silently=False,
@@ -845,6 +861,13 @@ class UserListCreateView(APIView):
 
         data = request.data.copy()
 
+        # ADMINISTRATOR: no puede crear otro ADMINISTRATOR
+        if request.user.is_administrator and data.get('role') == CustomUser.Role.ADMINISTRATOR:
+            return Response({
+                'success': False,
+                'message': 'No tienes permisos para crear otro administrador',
+            }, status=status.HTTP_403_FORBIDDEN)
+
         # ENCARGADO: restrict role + force their sede
         if request.user.is_encargado:
             allowed = {CustomUser.Role.WORKER, CustomUser.Role.CASHIER}
@@ -859,7 +882,12 @@ class UserListCreateView(APIView):
         serializer = UserCreateSerializer(data=data)
         if serializer.is_valid():
             user = serializer.save()
-            _send_welcome_email(user, plain_password)
+            # Enviar email en background para no bloquear la respuesta HTTP
+            threading.Thread(
+                target=_send_welcome_email,
+                args=(user, plain_password),
+                daemon=True,
+            ).start()
             return Response({
                 'success': True,
                 'message': 'Usuario creado exitosamente. Se enviaron las credenciales a su correo.',
@@ -955,9 +983,20 @@ class UserDetailView(APIView):
             return Response({'success': False, 'message': 'No puedes eliminar tu propio usuario'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        user.delete()
-        return Response({'success': True, 'message': 'Usuario eliminado exitosamente'},
-                        status=status.HTTP_200_OK)
+        try:
+            user.delete()
+            return Response({'success': True, 'message': 'Usuario eliminado exitosamente'},
+                            status=status.HTTP_200_OK)
+        except ProtectedError:
+            # El usuario tiene registros asociados (ventas, servicios, etc.)
+            # Se desactiva en lugar de eliminar para preservar la integridad
+            user.is_active = False
+            user.save(update_fields=['is_active'])
+            return Response({
+                'success': True,
+                'message': 'El usuario tiene registros asociados y no puede eliminarse. Fue desactivado.',
+                'deactivated': True,
+            }, status=status.HTTP_200_OK)
 
 
 # ─── ADMIN / ENCARGADO — TURNO (SCHEDULE) MANAGEMENT ─────────────────────────
