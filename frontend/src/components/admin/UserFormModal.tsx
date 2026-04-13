@@ -103,13 +103,16 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
   // Si es ENCARGADO, la sede siempre es la suya y no se puede cambiar
   const sedeLockedToEncargado = currentUser?.role === 'ENCARGADO';
 
+  const defaultSede = user?.sede?.id
+    ?? (currentUser?.role === 'ENCARGADO' ? currentUser?.sede?.id ?? '' : '');
+
   const [form, setForm] = useState({
     email:            user?.email ?? '',
     first_name:       user?.first_name ?? '',
     last_name:        user?.last_name ?? '',
     phone:            user?.phone ?? '',
-    role:             (user?.role ?? 'CUSTOMER') as UserRole,
-    sede:             user?.sede?.id ?? '',
+    role:             (user?.role ?? (currentUser?.role === 'ENCARGADO' ? 'CASHIER' : 'CUSTOMER')) as UserRole,
+    sede:             defaultSede,
     is_active:        user?.is_active ?? true,
     password:         '',
     password_confirm: '',
@@ -174,7 +177,10 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
       }
     }
 
-    if (SEDE_REQUIRED.includes(form.role) && !form.sede) {
+    const effectiveSede = sedeLockedToEncargado
+      ? (currentUser?.sede?.id ?? form.sede)
+      : form.sede;
+    if (SEDE_REQUIRED.includes(form.role) && !effectiveSede) {
       errs.sede = 'Este rol requiere una sede asignada';
     }
 
