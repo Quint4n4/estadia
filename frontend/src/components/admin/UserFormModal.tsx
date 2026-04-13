@@ -87,10 +87,21 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
   const isEdit = !!user;
   const { user: currentUser } = useAuth();
 
-  // El administrador no puede crear/asignar otro administrador
-  const availableRoles = ROLES.filter(r =>
-    !(currentUser?.role === 'ADMINISTRATOR' && r.value === 'ADMINISTRATOR' && !isEdit)
-  );
+  // Roles disponibles según el rol del usuario actual
+  const availableRoles = ROLES.filter(r => {
+    if (currentUser?.role === 'ADMINISTRATOR') {
+      // Admin no puede crear otro administrador
+      return !(r.value === 'ADMINISTRATOR' && !isEdit);
+    }
+    if (currentUser?.role === 'ENCARGADO') {
+      // Encargado solo puede crear personal operativo de su sede
+      return ['JEFE_MECANICO', 'MECANICO', 'WORKER', 'CASHIER'].includes(r.value);
+    }
+    return true;
+  });
+
+  // Si es ENCARGADO, la sede siempre es la suya y no se puede cambiar
+  const sedeLockedToEncargado = currentUser?.role === 'ENCARGADO';
 
   const [form, setForm] = useState({
     email:            user?.email ?? '',
@@ -190,13 +201,16 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
         };
         await usersService.update(user!.id, payload);
       } else {
+        const sedeValue = sedeLockedToEncargado
+          ? (currentUser?.sede?.id ?? null)
+          : (form.sede ? Number(form.sede) : null);
         const payload: UserCreatePayload = {
           email:            form.email,
           first_name:       form.first_name,
           last_name:        form.last_name,
           phone:            form.phone,
           role:             form.role,
-          sede:             form.sede ? Number(form.sede) : null,
+          sede:             sedeValue,
           password:         form.password,
           password_confirm: form.password_confirm,
         };
@@ -303,8 +317,10 @@ const UserFormModal: React.FC<Props> = ({ user, onClose, onSaved }) => {
             <div className="form-group">
               <label>Sede {SEDE_REQUIRED.includes(form.role) ? <span style={{ color: '#e53e3e' }}>*</span> : <span style={{ color: '#a0aec0', fontSize: 12 }}>(opcional)</span>}</label>
               <select
-                value={form.sede}
+                value={sedeLockedToEncargado ? (currentUser?.sede?.id ?? '') : form.sede}
                 onChange={(e) => change('sede', e.target.value)}
+                disabled={sedeLockedToEncargado}
+                style={sedeLockedToEncargado ? { background: '#f7fafc', cursor: 'not-allowed', color: '#718096' } : {}}
               >
                 <option value="">— Sin sede —</option>
                 {sedes.map((s) => (

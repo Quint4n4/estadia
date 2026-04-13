@@ -869,14 +869,20 @@ class UserListCreateView(APIView):
                 'message': 'No tienes permisos para crear otro administrador',
             }, status=status.HTTP_403_FORBIDDEN)
 
-        # ENCARGADO: restrict role + force their sede
+        # ENCARGADO: solo puede crear personal operativo de su propia sede
         if request.user.is_encargado:
-            allowed = {CustomUser.Role.WORKER, CustomUser.Role.CASHIER}
+            allowed = {
+                CustomUser.Role.JEFE_MECANICO,
+                CustomUser.Role.MECANICO,
+                CustomUser.Role.WORKER,
+                CustomUser.Role.CASHIER,
+            }
             if data.get('role') not in allowed:
                 return Response({
                     'success': False,
-                    'message': 'Solo puedes crear trabajadores y cajeros',
+                    'message': 'Solo puedes crear jefes de mecánico, mecánicos, trabajadores y cajeros',
                 }, status=status.HTTP_403_FORBIDDEN)
+            # Forzar siempre su propia sede, ignorar lo que mande el frontend
             data['sede'] = request.user.sede_id
 
         plain_password = data.get('password', '')
