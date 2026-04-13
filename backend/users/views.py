@@ -58,13 +58,12 @@ def _send_welcome_email(user, plain_password: str = None) -> None:
     """
     from django.conf import settings
 
-    # Guard: skip silently if SMTP is not configured
-    if not getattr(settings, 'EMAIL_HOST_USER', ''):
-        print('[EMAIL] EMAIL_HOST_USER no configurado. Se omite el correo de bienvenida.')
+    # Guard: skip if no email backend is configured
+    if not getattr(settings, 'SENDGRID_API_KEY', '') and not getattr(settings, 'EMAIL_HOST_USER', ''):
+        print('[EMAIL] Sin configuración de email. Se omite el correo de bienvenida.')
         return
 
-    # Use the authenticated Gmail account as the sender to avoid rejection
-    from_email = getattr(settings, 'EMAIL_HOST_USER', '')
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', getattr(settings, 'EMAIL_HOST_USER', ''))
 
     sede_name    = user.sede.name if user.sede else 'Sin sede asignada'
     role_display = user.get_role_display()
@@ -173,11 +172,11 @@ def _send_reset_email(user, token_uuid) -> None:
     """Send password-reset link to user."""
     from django.conf import settings
 
-    if not getattr(settings, 'EMAIL_HOST_USER', ''):
-        print('[EMAIL] EMAIL_HOST_USER no configurado. Se omite el correo de restablecimiento.')
+    if not getattr(settings, 'SENDGRID_API_KEY', '') and not getattr(settings, 'EMAIL_HOST_USER', ''):
+        print('[EMAIL] Sin configuración de email. Se omite el correo de restablecimiento.')
         return
 
-    from_email   = getattr(settings, 'EMAIL_HOST_USER', '')
+    from_email   = getattr(settings, 'DEFAULT_FROM_EMAIL', getattr(settings, 'EMAIL_HOST_USER', ''))
     frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
     reset_link   = f'{frontend_url}/reset-password?token={token_uuid}'
 
