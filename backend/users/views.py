@@ -156,17 +156,8 @@ def _send_welcome_email(user, plain_password: str = None) -> None:
     </div>
     """
 
-    try:
-        resend.Emails.send({
-            'from':    from_email,
-            'to':      [user.email],
-            'subject': subject,
-            'html':    html_body,
-            'text':    text_body,
-        })
-        print(f'[EMAIL] Welcome email sent to {user.email}')
-    except Exception as exc:
-        print(f'[EMAIL ERROR] Could not send welcome email to {user.email}: {exc}')
+    from config.email_service import send_email
+    send_email(to=user.email, subject=subject, html=html_body, text=text_body)
 
 
 def _send_reset_email(user, token_uuid) -> None:
@@ -235,17 +226,8 @@ def _send_reset_email(user, token_uuid) -> None:
     </div>
     """
 
-    try:
-        resend.Emails.send({
-            'from':    from_email,
-            'to':      [user.email],
-            'subject': subject,
-            'html':    html_body,
-            'text':    text_body,
-        })
-        print(f'[EMAIL] Reset email sent to {user.email}')
-    except Exception as exc:
-        print(f'[EMAIL ERROR] Could not send reset email to {user.email}: {exc}')
+    from config.email_service import send_email
+    send_email(to=user.email, subject=subject, html=html_body, text=text_body)
 
 
 # ─── Other helpers ─────────────────────────────────────────────────────────────
