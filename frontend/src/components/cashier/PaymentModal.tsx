@@ -9,6 +9,7 @@ interface Props {
   descuento:     number;
   metodoPago:    MetodoPago;
   montoPagado:   number;
+  emailRecibo?:  string;
   onClose:       () => void;
   onSuccess:     () => void;  // limpia carrito + cierra modal
   /** Cambia la cantidad de un ítem (delta: +1 o −1). Coincide con changeQty de POSView. */
@@ -21,7 +22,7 @@ const fmt = (n: number) =>
   n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 
 const PaymentModal: React.FC<Props> = ({
-  sedeId, items, descuento, metodoPago, montoPagado,
+  sedeId, items, descuento, metodoPago, montoPagado, emailRecibo,
   onClose, onSuccess, onChangeQty, onRemoveItem,
 }) => {
   const { registrarVenta } = useRegistrarVenta();
@@ -72,6 +73,7 @@ const PaymentModal: React.FC<Props> = ({
         metodo_pago:  metodoPago,
         monto_pagado: metodoPago === 'EFECTIVO' ? montoPagado : total,
         notas:        '',
+        email_recibo: emailRecibo,
       };
       const res = await registrarVenta(payload);
       if ((res as any).offline) {

@@ -350,3 +350,103 @@ def build_reporte_from_apertura(apertura) -> 'ReporteCaja':
     )
     reporte.archivo.save(filename, ContentFile(pdf_buffer.read()), save=True)
     return reporte
+
+
+def generate_ticket_venta_pdf(venta) -> io.BytesIO:
+    """
+    Generates a PDF ticket for a specific Venta (80mm format).
+    """
+    try:
+        from reportlab.lib.pagesizes import mm
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+        )
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+    except ImportError:
+        raise ImportError("reportlab no está instalado. Ejecuta: pip install reportlab")
+
+    buffer = io.BytesIO()
+    width = 80 * mm
+    # Dynamic height is tricky with SimpleDocTemplate, we use a fixed long roll height
+    height = 200 * mm 
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=(width, height),
+        rightMargin=3*mm, leftMargin=3*mm,
+        topMargin=5*mm, bottomMargin=5*mm,
+    )
+    story = []
+    
+    styles = getSampleStyleSheet()
+    def s(name, **kw):
+        return ParagraphStyle(name, **kw)
+    
+    center_bold = s('CenterBold', fontSize=10, alignment=TA_CENTER, fontName='Helvetica-Bold')
+    center = s('Center', fontSize=8, alignment=TA_CENTER, fontName='Helvetica')
+    left = s('Left', fontSize=8, alignment=TA_LEFT, fontName='Helvetica')
+    left_bold = s('LeftBold', fontSize=8, alignment=TA_LEFT, fontName='Helvetica-Bold')
+    right = s('Right', fontSize=8, alignment=TA_RIGHT, fontName='Helvetica')
+    
+    sede = venta.sede
+    story.append(Paragraph('MotoQFox', center_bold))
+    story.append(Paragraph(sede.name, center))
+    story.append(Spacer(1, 2*mm))
+    story.append(Paragraph(f"Ticket: #{venta.id}", center))
+    from django.utils import timezone
+    story.append(Paragraph(f"Fecha: {timezone.localtime(venta.created_at).strftime('%d/%m/%Y %H:%M')}", center))
+    story.append(Paragraph(f"Cajero: {venta.cajero.get_full_name()}", center))
+    story.append(Spacer(1, 3*mm))
+    
+    # We need GRAY_MID which is available at the top of the file
+    story.append(HRFlowable(width=width-6*mm, color=GRAY_MID, spaceBefore=0, spaceAfter=2))
+    
+    items_data = []
+    for it in venta.items.all():
+        if it.producto_id:
+            name = it.producto.name
+        elif getattr(it, 'catalogo_servicio_id', None):
+            name = it.catalogo_servicio.nombre
+        else:
+            name = 'Servicio de taller'
+        if len(name) > 20: name = name[:18] + '..'
+        items_data.append([
+            Paragraph(f"{it.quantity}x {name}", left),
+            Paragraph(_fmt(it.subtotal), right)
+        ])
+    
+    if items_data:
+        t = Table(items_data, colWidths=[width*0.65, width*0.25])
+        t.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+        ]))
+        story.append(t)
+    
+    story.append(HRFlowable(width=width-6*mm, color=GRAY_MID, spaceBefore=2, spaceAfter=2))
+    
+    totals_data = []
+    if venta.descuento:
+        totals_data.append([Paragraph("Subtotal:", left_bold), Paragraph(_fmt(venta.total + venta.descuento), right)])
+        totals_data.append([Paragraph("Descuento:", left), Paragraph("-" + _fmt(venta.descuento), right)])
+    totals_data.append([Paragraph("TOTAL:", left_bold), Paragraph(_fmt(venta.total), right)])
+    totals_data.append([Paragraph(f"Pago ({venta.metodo_pago}):", left), Paragraph(_fmt(venta.monto_pagado), right)])
+    if venta.cambio:
+        totals_data.append([Paragraph("Cambio:", left), Paragraph(_fmt(venta.cambio), right)])
+        
+    t_tot = Table(totals_data, colWidths=[width*0.5, width*0.4])
+    t_tot.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+    ]))
+    story.append(t_tot)
+    
+    story.append(Spacer(1, 5*mm))
+    story.append(Paragraph("¡Gracias por tu compra!", center_bold))
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer

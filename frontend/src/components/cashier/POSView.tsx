@@ -628,6 +628,7 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
   const [descuentoTipo,  setDescuentoTipo]  = useState<'MXN' | 'PCT'>('MXN');
   const [metodoPago,     setMetodoPago]     = useState<MetodoPago>('EFECTIVO');
   const [montoPagado,    setMontoPagado]    = useState(0);
+  const [emailRecibo,    setEmailRecibo]    = useState('');
 
   const subtotal  = cart.reduce((s, i) => s + i.subtotal, 0);
   const descuento = descuentoTipo === 'PCT'
@@ -1004,6 +1005,20 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
                       </div>
                     </>
                   )}
+                  <div className="pos-email-box" style={{ marginBottom: 12 }}>
+                    <p className="pos-payment-label">Ticket digital (Opcional)</p>
+                    <div className="pos-efectivo-input-row" style={{ paddingLeft: 12 }}>
+                      <span className="material-symbols-outlined" style={{ color: 'var(--color-text-secondary)', fontSize: 18, marginRight: 8 }}>mail</span>
+                      <input
+                        type="email"
+                        className="pos-efectivo-input"
+                        placeholder="correo@ejemplo.com"
+                        value={emailRecibo}
+                        onChange={e => setEmailRecibo(e.target.value)}
+                        style={{ paddingLeft: 0, fontSize: 14 }}
+                      />
+                    </div>
+                  </div>
                   <button
                     type="button"
                     className="pos-cobrar-btn"
@@ -1023,8 +1038,9 @@ const POSView: React.FC<Props> = ({ sedeId }) => {
         <PaymentModal
           sedeId={sedeId} items={cart} descuento={descuento}
           metodoPago={metodoPago} montoPagado={montoPagado}
+          emailRecibo={emailRecibo}
           onClose={() => setShowModal(false)}
-          onSuccess={() => { clearCart(); setDescuentoInput(0); setMontoPagado(0); setShowModal(false); }}
+          onSuccess={() => { clearCart(); setDescuentoInput(0); setMontoPagado(0); setEmailRecibo(''); setShowModal(false); }}
         />
       )}
 

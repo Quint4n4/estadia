@@ -57,6 +57,42 @@ def _paginate(qs, request, default_size=20):
     }
 
 
+def _send_ticket_background(venta_id: int, email: str) -> None:
+    """Genera el PDF del ticket de una venta y lo envía por Resend.
+
+    Reutilizable para ventas de productos (POS) y para servicios de taller:
+    detecta el tipo a partir de la venta para ajustar el texto del correo.
+    Pensado para ejecutarse en un hilo en segundo plano.
+    """
+    try:
+        from .models import Venta
+        from .pdf_service import generate_ticket_venta_pdf
+        from config.email_service import send_email, attachment_from_bytes
+
+        venta = Venta.objects.get(pk=venta_id)
+        es_servicio = venta.servicios_taller.exists()
+        tipo = 'servicio' if es_servicio else 'compra'
+
+        pdf_buffer = generate_ticket_venta_pdf(venta)
+
+        send_email(
+            to=email,
+            subject=f"Tu ticket de {tipo} #{venta.id} — MotoQFox",
+            html=(
+                "<p>Hola,</p>"
+                f"<p>Gracias por tu {tipo} en MotoQFox. "
+                "Adjunto encontrarás tu ticket.</p>"
+            ),
+            text=(
+                f"Hola,\n\nGracias por tu {tipo} en MotoQFox. "
+                "Adjunto encontrarás tu ticket."
+            ),
+            attachments=[attachment_from_bytes(f"ticket_{venta.id}.pdf", pdf_buffer.read())],
+        )
+    except Exception as e:
+        print(f"[EMAIL] Error enviando ticket: {e}")
+
+
 # ─── Ventas ───────────────────────────────────────────────────────────────────
 
 class VentaListCreateView(APIView):
@@ -111,6 +147,15 @@ class VentaListCreateView(APIView):
         s = VentaCreateSerializer(data=request.data, context={'request': request})
         if s.is_valid():
             venta = s.save()
+            
+            email_recibo = request.data.get('email_recibo')
+            if not email_recibo and getattr(venta, 'cliente', None) and venta.cliente.email:
+                email_recibo = venta.cliente.email
+                
+            if email_recibo:
+                import threading
+                threading.Thread(target=_send_ticket_background, args=(venta.id, email_recibo), daemon=True).start()
+
             return Response({
                 'success': True,
                 'message': f'Venta #{venta.id} registrada exitosamente',

@@ -4,8 +4,8 @@ Taller Views — MotoQFox
 Endpoints para gestión de órdenes de servicio de taller.
 """
 import uuid
+import threading
 from django.utils import timezone
-from django.core.mail import send_mail
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Q
@@ -38,6 +38,8 @@ from .permissions import (
 from inventory.models import Stock
 from customers.models import ClienteProfile
 
+from config.email_service import send_email
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  HELPERS
@@ -60,66 +62,135 @@ def _paginate(qs, request, default_size=20):
     }
 
 
+def _tracking_url(servicio) -> str:
+    """URL pública de seguimiento del servicio (no requiere login)."""
+    base = getattr(settings, 'FRONTEND_CLIENTE_URL', 'http://localhost:5174')
+    return f'{base}/seguimiento/{servicio.tracking_token}'
+
+
+def _email_cliente(servicio):
+    """Correo del cliente del servicio, o None si es walk-in / sin correo."""
+    if not servicio.cliente:
+        return None
+    return getattr(servicio.cliente.usuario, 'email', None) or None
+
+
 def _notificar_cliente_listo(servicio):
-    """Envía email al cliente cuando el servicio está listo."""
-    if not servicio.cliente:
-        return
-    email = servicio.cliente.usuario.email
-    nombre = servicio.cliente.usuario.get_full_name()
-    moto_str = str(servicio.moto) if servicio.moto else 'su moto'
-    try:
-        send_mail(
-            subject=f'[MotoQFox] Tu moto está lista — {servicio.folio}',
-            message=(
-                f'Hola {nombre},\n\n'
-                f'Te informamos que {moto_str} ya está lista para ser recogida.\n\n'
-                f'Folio de servicio: {servicio.folio}\n'
-                f'Total a pagar: ${servicio.total}\n\n'
-                f'Puedes presentar tu código QR en caja para agilizar el proceso.\n\n'
-                f'¡Gracias por confiar en MotoQFox!'
-            ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-            fail_silently=True,
-        )
-        servicio.cliente_notificado = True
-        servicio.save(update_fields=['cliente_notificado'])
-    except Exception:
-        pass
-
-
-def _enviar_link_seguimiento(servicio, tracking_url: str):
-    """Envía email al cliente con el link de seguimiento al crear la orden."""
-    if not servicio.cliente:
-        return
-    email = servicio.cliente.usuario.email
+    """Email al cliente cuando el servicio está LISTO para recoger."""
+    email = _email_cliente(servicio)
     if not email:
         return
-    nombre = servicio.cliente.usuario.get_full_name() or 'Cliente'
-    moto_str = str(servicio.moto) if servicio.moto else 'tu moto'
+    nombre   = servicio.cliente.usuario.get_full_name() or 'Cliente'
+    moto_str = str(servicio.moto) if servicio.moto else 'su moto'
+    enviado = send_email(
+        to=email,
+        subject=f'[MotoQFox] Tu moto está lista — {servicio.folio}',
+        html=(
+            f'<p>Hola {nombre},</p>'
+            f'<p>Te informamos que <strong>{moto_str}</strong> ya está lista para ser recogida.</p>'
+            f'<p>Folio de servicio: <strong>{servicio.folio}</strong><br>'
+            f'Total a pagar: <strong>${servicio.total}</strong></p>'
+            f'<p>Puedes presentar tu código QR en caja para agilizar el proceso.</p>'
+            f'<p>¡Gracias por confiar en MotoQFox!</p>'
+        ),
+        text=(
+            f'Hola {nombre},\n\n'
+            f'Te informamos que {moto_str} ya está lista para ser recogida.\n\n'
+            f'Folio de servicio: {servicio.folio}\n'
+            f'Total a pagar: ${servicio.total}\n\n'
+            f'Puedes presentar tu código QR en caja para agilizar el proceso.\n\n'
+            f'¡Gracias por confiar en MotoQFox!'
+        ),
+    )
+    if enviado:
+        servicio.cliente_notificado = True
+        servicio.save(update_fields=['cliente_notificado'])
+
+
+def _enviar_link_seguimiento(servicio):
+    """Email al cliente con el link de seguimiento al crear la orden."""
+    email = _email_cliente(servicio)
+    if not email:
+        return
+    nombre    = servicio.cliente.usuario.get_full_name() or 'Cliente'
+    moto_str  = str(servicio.moto) if servicio.moto else 'tu moto'
+    sede_name = getattr(servicio.sede, 'name', '') if servicio.sede else ''
     fecha_est = (
         servicio.fecha_entrega_estimada.strftime('%d/%m/%Y')
         if servicio.fecha_entrega_estimada else 'por confirmar'
     )
-    try:
-        send_mail(
-            subject=f'[MotoQFox] Hemos recibido tu moto — {servicio.folio}',
-            message=(
-                f'Hola {nombre},\n\n'
-                f'Confirmamos la recepción de {moto_str} en {servicio.sede.nombre}.\n\n'
-                f'Folio: {servicio.folio}\n'
-                f'Entrega estimada: {fecha_est}\n\n'
-                f'Sigue el progreso de tu servicio en tiempo real aquí:\n'
-                f'{tracking_url}\n\n'
-                f'(No necesitas iniciar sesión, el link es exclusivo para tu orden)\n\n'
-                f'¡Gracias por confiar en MotoQFox!'
-            ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-            fail_silently=True,
-        )
-    except Exception:
-        pass
+    url = _tracking_url(servicio)
+    send_email(
+        to=email,
+        subject=f'[MotoQFox] Hemos recibido tu moto — {servicio.folio}',
+        html=(
+            f'<p>Hola {nombre},</p>'
+            f'<p>Confirmamos la recepción de <strong>{moto_str}</strong> en {sede_name}.</p>'
+            f'<p>Folio: <strong>{servicio.folio}</strong><br>'
+            f'Entrega estimada: {fecha_est}</p>'
+            f'<p>Sigue el progreso de tu servicio en tiempo real aquí:<br>'
+            f'<a href="{url}">{url}</a></p>'
+            f'<p>(No necesitas iniciar sesión, el link es exclusivo para tu orden.)</p>'
+            f'<p>¡Gracias por confiar en MotoQFox!</p>'
+        ),
+        text=(
+            f'Hola {nombre},\n\n'
+            f'Confirmamos la recepción de {moto_str} en {sede_name}.\n\n'
+            f'Folio: {servicio.folio}\n'
+            f'Entrega estimada: {fecha_est}\n\n'
+            f'Sigue el progreso de tu servicio en tiempo real aquí:\n{url}\n\n'
+            f'(No necesitas iniciar sesión, el link es exclusivo para tu orden)\n\n'
+            f'¡Gracias por confiar en MotoQFox!'
+        ),
+    )
+
+
+def _notificar_cambio_estado(servicio):
+    """Email al cliente avisando que el estatus de su servicio cambió, con el
+    link de seguimiento. Se llama tras cada transición relevante de estado."""
+    email = _email_cliente(servicio)
+    if not email:
+        return
+    nombre   = servicio.cliente.usuario.get_full_name() or 'Cliente'
+    moto_str = str(servicio.moto) if servicio.moto else 'tu moto'
+    estado   = servicio.get_status_display()
+    url      = _tracking_url(servicio)
+    send_email(
+        to=email,
+        subject=f'[MotoQFox] Actualización de tu servicio — {servicio.folio}',
+        html=(
+            f'<p>Hola {nombre},</p>'
+            f'<p>El estatus de tu servicio para <strong>{moto_str}</strong> cambió a:</p>'
+            f'<p style="font-size:18px;color:#4c51bf;"><strong>{estado}</strong></p>'
+            f'<p>Folio: <strong>{servicio.folio}</strong></p>'
+            f'<p>Consulta el detalle y el progreso en tiempo real aquí:<br>'
+            f'<a href="{url}">{url}</a></p>'
+            f'<p>¡Gracias por confiar en MotoQFox!</p>'
+        ),
+        text=(
+            f'Hola {nombre},\n\n'
+            f'El estatus de tu servicio para {moto_str} cambió a: {estado}\n\n'
+            f'Folio: {servicio.folio}\n\n'
+            f'Consulta el progreso aquí:\n{url}\n\n'
+            f'¡Gracias por confiar en MotoQFox!'
+        ),
+    )
+
+
+def _enviar_ticket_servicio(servicio, email_recibo=None):
+    """Manda el ticket PDF del servicio (al cobrar) por correo, en segundo plano.
+    Usa el correo capturado en caja (email_recibo) o el del cliente registrado."""
+    if not servicio.venta_id:
+        return
+    email = (email_recibo or '').strip() or _email_cliente(servicio)
+    if not email:
+        return
+    from sales.views import _send_ticket_background
+    threading.Thread(
+        target=_send_ticket_background,
+        args=(servicio.venta_id, email),
+        daemon=True,
+    ).start()
 
 
 def _crear_venta_servicio(servicio, cajero, metodo_pago, monto_pagado):
@@ -307,10 +378,9 @@ class ServicioListView(APIView):
         serializer = ServicioMotoCreateSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             servicio = serializer.save()
+            email_recibo = request.data.get('email_recibo')
             # Enviar link de seguimiento al cliente si tiene email
-            frontend_url = getattr(settings, 'FRONTEND_CLIENTE_URL', 'http://localhost:5174')
-            tracking_url = f'{frontend_url}/seguimiento/{servicio.tracking_token}'
-            _enviar_link_seguimiento(servicio, tracking_url)
+            _enviar_link_seguimiento(servicio)
             # Si se pagó anticipadamente, registrar en ventas del día
             if servicio.pago_status == ServicioMoto.PagoStatus.PAGADO:
                 try:
@@ -323,6 +393,8 @@ class ServicioListView(APIView):
                         )
                         servicio.venta = venta_obj
                         servicio.save(update_fields=['venta'])
+                    # Enviar ticket del servicio por correo
+                    _enviar_ticket_servicio(servicio, email_recibo)
                 except Exception:
                     pass
             return Response(
@@ -439,6 +511,8 @@ class AsignarMecanicoView(APIView):
             servicio.fecha_inicio = timezone.now()
             servicio.save(update_fields=['mecanico', 'asignado_por', 'status', 'fecha_inicio'])
 
+        _notificar_cambio_estado(servicio)
+
         return Response({
             'success': True,
             'message': f'Servicio asignado a {mecanico.get_full_name()}.',
@@ -529,6 +603,8 @@ class AutorizarDiagnosticoView(APIView):
         servicio.diagnostico_listo = False
         servicio.save(update_fields=['status', 'fecha_inicio', 'diagnostico_listo'])
 
+        _notificar_cambio_estado(servicio)
+
         return Response({
             'success': True,
             'message': 'Diagnóstico autorizado. Servicio en proceso.',
@@ -568,6 +644,8 @@ class CancelarOrdenView(APIView):
 
         servicio.status = ServicioMoto.Status.CANCELADO
         servicio.save(update_fields=['status'])
+
+        _notificar_cambio_estado(servicio)
 
         return Response({
             'success': True,
@@ -631,6 +709,8 @@ class MarcarListaParaEntregarView(APIView):
 
         servicio.status = ServicioMoto.Status.LISTA_PARA_ENTREGAR
         servicio.save(update_fields=['status'])
+
+        _notificar_cambio_estado(servicio)
 
         return Response({
             'success': True,
@@ -747,6 +827,10 @@ class EntregarServicioView(APIView):
                 'metodo_pago', 'monto_pagado', 'cambio', 'venta',
             ])
 
+        # Avisar al cliente del cambio de estado y enviarle su ticket por correo
+        _notificar_cambio_estado(servicio)
+        _enviar_ticket_servicio(servicio, request.data.get('email_recibo'))
+
         return Response({
             'success': True,
             'message': 'Servicio entregado y cobrado correctamente.',
@@ -843,6 +927,7 @@ class SolicitudRefaccionExtraListView(APIView):
                 servicio = solicitud.servicio
                 servicio.status = ServicioMoto.Status.COTIZACION_EXTRA
                 servicio.save(update_fields=['status'])
+            _notificar_cambio_estado(servicio)
             return Response(
                 {
                     'success': True,

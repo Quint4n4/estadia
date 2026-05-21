@@ -193,6 +193,7 @@ export interface AsignarMecanicoPayload {
 export interface EntregarServicioPayload {
   metodo_pago: MetodoPago;
   monto_pagado: number;
+  email_recibo?: string;
 }
 
 export interface SolicitudCreatePayload {

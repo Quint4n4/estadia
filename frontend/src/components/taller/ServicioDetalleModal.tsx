@@ -109,6 +109,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, localId, onClose, o
   const [actionLoading,setAction]       = useState(false);
   const [metodo,       setMetodo]       = useState<MetodoPago>('EFECTIVO');
   const [montoRecibido, setMontoRecibido] = useState<string>('');
+  const [emailRecibo,  setEmailRecibo]  = useState<string>('');
   const [mecanicoId,   setMecanicoId]   = useState<number | ''>('');
   const [mecanicos,    setMecanicos]    = useState<MecanicoUser[]>([]);
   const [imgAmpliada,  setImgAmpliada]  = useState<string | null>(null);
@@ -378,7 +379,7 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, localId, onClose, o
     const yaPageado = servicio?.pago_status === 'PAGADO';
     const payload = yaPageado
       ? { metodo_pago: servicio!.metodo_pago ?? 'EFECTIVO', monto_pagado: Number(servicio!.total) }
-      : { metodo_pago: metodo, monto_pagado: parseFloat(montoRecibido) || 0 };
+      : { metodo_pago: metodo, monto_pagado: parseFloat(montoRecibido) || 0, email_recibo: emailRecibo.trim() || undefined };
     setAction(true); setError('');
     try {
       const res = await entregarServicio(servicioId, payload);
@@ -890,6 +891,24 @@ const ServicioDetalleModal: React.FC<Props> = ({ servicioId, localId, onClose, o
                                   />
                                 </div>
                               )}
+                              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4, marginTop: 8 }}>
+                                <label style={{ fontSize: 11, fontWeight: 700, color: '#718096', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+                                  Correo para ticket (opcional)
+                                </label>
+                                <input
+                                  type="email"
+                                  value={emailRecibo}
+                                  onChange={e => setEmailRecibo(e.target.value)}
+                                  placeholder="cliente@correo.com"
+                                  style={{
+                                    padding: '8px 12px', borderRadius: 8,
+                                    border: '1px solid #e2e8f0', fontSize: 14,
+                                    fontWeight: 600, color: '#2d3748',
+                                    background: '#fff', outline: 'none', width: '100%',
+                                    boxSizing: 'border-box' as const,
+                                  }}
+                                />
+                              </div>
                             </div>
                             <button
                               onClick={handleEntregar}
