@@ -7,6 +7,7 @@ enviar correo a través de send_email() en lugar de django.core.mail.send_mail
 o llamadas directas a resend.
 """
 import base64
+import os
 
 from django.conf import settings
 
@@ -31,6 +32,15 @@ def send_email(to, subject, html, text=None, attachments=None) -> bool:
     if not api_key:
         print(f'[EMAIL] RESEND_API_KEY no configurado — se omite el correo: "{subject}"')
         return False
+
+    # SEGURIDAD (staging/pruebas): si EMAIL_OVERRIDE_TO está configurado, TODOS los
+    # correos se redirigen a esa dirección, para NUNCA escribirle a un cliente real
+    # con mensajes de prueba. En producción esta variable se deja vacía.
+    override = os.environ.get('EMAIL_OVERRIDE_TO', '').strip()
+    if override:
+        destino_original = to if isinstance(to, str) else ', '.join(to)
+        to = override
+        subject = f'[PRUEBA→{destino_original}] {subject}'
 
     try:
         import resend
