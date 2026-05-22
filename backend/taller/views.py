@@ -38,7 +38,7 @@ from .permissions import (
 from inventory.models import Stock
 from customers.models import ClienteProfile
 
-from config.email_service import send_email
+from config.email_service import send_email, branded_email, email_button
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,17 +82,22 @@ def _notificar_cliente_listo(servicio):
         return
     nombre   = servicio.cliente.usuario.get_full_name() or 'Cliente'
     moto_str = str(servicio.moto) if servicio.moto else 'su moto'
+    body = (
+        f'<p style="color:#4a5568;font-size:14px;">Hola <strong>{nombre}</strong>,</p>'
+        f'<p style="color:#4a5568;font-size:14px;">&#161;Buenas noticias! <strong>{moto_str}</strong> '
+        f'ya est&#225; <strong style="color:#2c7a7b;">lista para recoger</strong>.</p>'
+        f'<table style="width:100%;font-size:14px;border-collapse:collapse;margin:16px 0;">'
+        f'<tr><td style="color:#718096;padding:5px 0;">Folio:</td>'
+        f'<td style="color:#2d3748;font-weight:700;text-align:right;">{servicio.folio}</td></tr>'
+        f'<tr><td style="color:#718096;padding:5px 0;">Total a pagar:</td>'
+        f'<td style="color:#2d3748;font-weight:700;text-align:right;">${servicio.total}</td></tr></table>'
+        f'<p style="color:#4a5568;font-size:14px;">Presenta tu c&#243;digo QR en caja para agilizar el proceso.</p>'
+        f'<p style="color:#4a5568;font-size:14px;">&#161;Gracias por confiar en MotoQFox!</p>'
+    )
     enviado = send_email(
         to=email,
         subject=f'[MotoQFox] Tu moto está lista — {servicio.folio}',
-        html=(
-            f'<p>Hola {nombre},</p>'
-            f'<p>Te informamos que <strong>{moto_str}</strong> ya está lista para ser recogida.</p>'
-            f'<p>Folio de servicio: <strong>{servicio.folio}</strong><br>'
-            f'Total a pagar: <strong>${servicio.total}</strong></p>'
-            f'<p>Puedes presentar tu código QR en caja para agilizar el proceso.</p>'
-            f'<p>¡Gracias por confiar en MotoQFox!</p>'
-        ),
+        html=branded_email('Tu moto está lista', body),
         text=(
             f'Hola {nombre},\n\n'
             f'Te informamos que {moto_str} ya está lista para ser recogida.\n\n'
@@ -120,19 +125,23 @@ def _enviar_link_seguimiento(servicio):
         if servicio.fecha_entrega_estimada else 'por confirmar'
     )
     url = _tracking_url(servicio)
+    body = (
+        f'<p style="color:#4a5568;font-size:14px;">Hola <strong>{nombre}</strong>,</p>'
+        f'<p style="color:#4a5568;font-size:14px;">Confirmamos la recepci&#243;n de '
+        f'<strong>{moto_str}</strong> en {sede_name}.</p>'
+        f'<table style="width:100%;font-size:14px;border-collapse:collapse;margin:16px 0;">'
+        f'<tr><td style="color:#718096;padding:5px 0;">Folio:</td>'
+        f'<td style="color:#2d3748;font-weight:700;text-align:right;">{servicio.folio}</td></tr>'
+        f'<tr><td style="color:#718096;padding:5px 0;">Entrega estimada:</td>'
+        f'<td style="color:#2d3748;font-weight:700;text-align:right;">{fecha_est}</td></tr></table>'
+        f'<p style="color:#4a5568;font-size:14px;">Sigue el progreso de tu servicio en tiempo real:</p>'
+        + email_button('Ver seguimiento de mi moto', url) +
+        '<p style="color:#a0aec0;font-size:12px;text-align:center;">No necesitas iniciar sesi&#243;n, el enlace es exclusivo para tu orden.</p>'
+    )
     send_email(
         to=email,
         subject=f'[MotoQFox] Hemos recibido tu moto — {servicio.folio}',
-        html=(
-            f'<p>Hola {nombre},</p>'
-            f'<p>Confirmamos la recepción de <strong>{moto_str}</strong> en {sede_name}.</p>'
-            f'<p>Folio: <strong>{servicio.folio}</strong><br>'
-            f'Entrega estimada: {fecha_est}</p>'
-            f'<p>Sigue el progreso de tu servicio en tiempo real aquí:<br>'
-            f'<a href="{url}">{url}</a></p>'
-            f'<p>(No necesitas iniciar sesión, el link es exclusivo para tu orden.)</p>'
-            f'<p>¡Gracias por confiar en MotoQFox!</p>'
-        ),
+        html=branded_email('Hemos recibido tu moto', body),
         text=(
             f'Hola {nombre},\n\n'
             f'Confirmamos la recepción de {moto_str} en {sede_name}.\n\n'
@@ -155,18 +164,22 @@ def _notificar_cambio_estado(servicio):
     moto_str = str(servicio.moto) if servicio.moto else 'tu moto'
     estado   = servicio.get_status_display()
     url      = _tracking_url(servicio)
+    body = (
+        f'<p style="color:#4a5568;font-size:14px;">Hola <strong>{nombre}</strong>,</p>'
+        f'<p style="color:#4a5568;font-size:14px;">El estatus de tu servicio para '
+        f'<strong>{moto_str}</strong> cambi&#243; a:</p>'
+        f'<div style="background:#f0f4ff;border-left:4px solid #4c51bf;border-radius:8px;'
+        f'padding:16px 20px;margin:18px 0;text-align:center;">'
+        f'<span style="font-size:20px;font-weight:800;color:#4c51bf;">{estado}</span></div>'
+        f'<table style="width:100%;font-size:14px;border-collapse:collapse;">'
+        f'<tr><td style="color:#718096;padding:4px 0;">Folio:</td>'
+        f'<td style="color:#2d3748;font-weight:700;text-align:right;">{servicio.folio}</td></tr></table>'
+        + email_button('Ver el progreso de mi moto', url)
+    )
     send_email(
         to=email,
         subject=f'[MotoQFox] Actualización de tu servicio — {servicio.folio}',
-        html=(
-            f'<p>Hola {nombre},</p>'
-            f'<p>El estatus de tu servicio para <strong>{moto_str}</strong> cambió a:</p>'
-            f'<p style="font-size:18px;color:#4c51bf;"><strong>{estado}</strong></p>'
-            f'<p>Folio: <strong>{servicio.folio}</strong></p>'
-            f'<p>Consulta el detalle y el progreso en tiempo real aquí:<br>'
-            f'<a href="{url}">{url}</a></p>'
-            f'<p>¡Gracias por confiar en MotoQFox!</p>'
-        ),
+        html=branded_email('Actualización de tu servicio', body),
         text=(
             f'Hola {nombre},\n\n'
             f'El estatus de tu servicio para {moto_str} cambió a: {estado}\n\n'

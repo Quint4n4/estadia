@@ -72,3 +72,38 @@ def attachment_from_bytes(filename: str, raw_bytes: bytes) -> dict:
         'filename': filename,
         'content':  base64.b64encode(raw_bytes).decode('utf-8'),
     }
+
+
+# ── Plantilla HTML de marca (correos a clientes) ─────────────────────────────
+
+def branded_email(subtitle: str, body_html: str) -> str:
+    """Envuelve el contenido en una tarjeta con la marca MotoQFox."""
+    return f"""\
+    <div style="font-family:Arial,Helvetica,sans-serif;max-width:540px;margin:0 auto;
+                padding:28px 24px;border:1px solid #e2e8f0;border-radius:14px;background:#ffffff;">
+      <div style="text-align:center;margin-bottom:22px;">
+        <div style="font-size:30px;line-height:1;">&#127949;&#65039;</div>
+        <h1 style="color:#1a202c;font-size:22px;margin:6px 0 0;font-weight:800;">MotoQFox</h1>
+        <p style="color:#718096;margin:4px 0 0;font-size:13px;">{subtitle}</p>
+      </div>
+      {body_html}
+      <p style="color:#a0aec0;font-size:11px;text-align:center;margin-top:26px;line-height:1.6;">
+        Este correo fue generado automáticamente por el sistema MotoQFox.<br>
+        Por favor no respondas a este mensaje.
+      </p>
+    </div>"""
+
+
+def email_button(text: str, url: str) -> str:
+    """Botón de acción con estilo (degradado MotoQFox). Se omite si la URL no es absoluta."""
+    if not url or not url.startswith('http'):
+        return ''
+    return f"""
+    <div style="text-align:center;margin:26px 0;">
+      <a href="{url}" style="background:linear-gradient(135deg,#667eea,#764ba2);color:#ffffff;
+            padding:14px 30px;border-radius:10px;text-decoration:none;font-weight:700;
+            font-size:15px;display:inline-block;">{text}</a>
+    </div>
+    <p style="color:#718096;font-size:12px;text-align:center;word-break:break-all;">
+      O copia este enlace:<br><span style="color:#4c51bf;">{url}</span>
+    </p>"""

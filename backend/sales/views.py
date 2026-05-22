@@ -67,7 +67,7 @@ def _send_ticket_background(venta_id: int, email: str) -> None:
     try:
         from .models import Venta
         from .pdf_service import generate_ticket_venta_pdf
-        from config.email_service import send_email, attachment_from_bytes
+        from config.email_service import send_email, attachment_from_bytes, branded_email
 
         venta = Venta.objects.get(pk=venta_id)
         es_servicio = venta.servicios_taller.exists()
@@ -78,10 +78,12 @@ def _send_ticket_background(venta_id: int, email: str) -> None:
         send_email(
             to=email,
             subject=f"Tu ticket de {tipo} #{venta.id} — MotoQFox",
-            html=(
-                "<p>Hola,</p>"
-                f"<p>Gracias por tu {tipo} en MotoQFox. "
-                "Adjunto encontrarás tu ticket.</p>"
+            html=branded_email(
+                f'Tu comprobante de {tipo}',
+                f'<p style="color:#4a5568;font-size:14px;">&#161;Hola!</p>'
+                f'<p style="color:#4a5568;font-size:14px;">Gracias por tu {tipo} en MotoQFox. '
+                f'Adjunto a este correo encontrar&#225;s tu <strong>ticket #{venta.id}</strong> en PDF.</p>'
+                f'<p style="color:#718096;font-size:13px;">Conserva este comprobante para cualquier aclaraci&#243;n.</p>'
             ),
             text=(
                 f"Hola,\n\nGracias por tu {tipo} en MotoQFox. "
