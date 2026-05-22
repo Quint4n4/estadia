@@ -98,6 +98,7 @@ def _notificar_cliente_listo(servicio):
         to=email,
         subject=f'[MotoQFox] Tu moto está lista — {servicio.folio}',
         html=branded_email('Tu moto está lista', body),
+        tipo='LISTO', cliente=servicio.cliente, contexto={'servicio_id': servicio.id},
         text=(
             f'Hola {nombre},\n\n'
             f'Te informamos que {moto_str} ya está lista para ser recogida.\n\n'
@@ -142,6 +143,7 @@ def _enviar_link_seguimiento(servicio):
         to=email,
         subject=f'[MotoQFox] Hemos recibido tu moto — {servicio.folio}',
         html=branded_email('Hemos recibido tu moto', body),
+        tipo='RECEPCION', cliente=servicio.cliente, contexto={'servicio_id': servicio.id},
         text=(
             f'Hola {nombre},\n\n'
             f'Confirmamos la recepción de {moto_str} en {sede_name}.\n\n'
@@ -180,6 +182,7 @@ def _notificar_cambio_estado(servicio):
         to=email,
         subject=f'[MotoQFox] Actualización de tu servicio — {servicio.folio}',
         html=branded_email('Actualización de tu servicio', body),
+        tipo='ESTATUS', cliente=servicio.cliente, contexto={'servicio_id': servicio.id},
         text=(
             f'Hola {nombre},\n\n'
             f'El estatus de tu servicio para {moto_str} cambió a: {estado}\n\n'

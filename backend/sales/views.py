@@ -89,6 +89,8 @@ def _send_ticket_background(venta_id: int, email: str) -> None:
                 f"Hola,\n\nGracias por tu {tipo} en MotoQFox. "
                 "Adjunto encontrarás tu ticket."
             ),
+            tipo=('TICKET_SERVICIO' if es_servicio else 'TICKET_VENTA'),
+            contexto={'venta_id': venta.id},
             attachments=[attachment_from_bytes(f"ticket_{venta.id}.pdf", pdf_buffer.read())],
         )
     except Exception as e:
