@@ -354,99 +354,158 @@ def build_reporte_from_apertura(apertura) -> 'ReporteCaja':
 
 def generate_ticket_venta_pdf(venta) -> io.BytesIO:
     """
-    Generates a PDF ticket for a specific Venta (80mm format).
+    Genera el ticket en PDF (80mm) de una venta o servicio, con el mismo
+    formato que el ticket de la app: encabezado fiscal de la sede, folio,
+    SKU por ítem, columnas Qty/Precio/Importe, desglose de IVA y leyenda.
     """
     try:
         from reportlab.lib.pagesizes import mm
         from reportlab.platypus import (
             SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
         )
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+        from reportlab.lib import colors
     except ImportError:
         raise ImportError("reportlab no está instalado. Ejecuta: pip install reportlab")
 
-    buffer = io.BytesIO()
-    width = 80 * mm
-    # Dynamic height is tricky with SimpleDocTemplate, we use a fixed long roll height
-    height = 200 * mm 
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=(width, height),
-        rightMargin=3*mm, leftMargin=3*mm,
-        topMargin=5*mm, bottomMargin=5*mm,
-    )
-    story = []
-    
-    styles = getSampleStyleSheet()
-    def s(name, **kw):
-        return ParagraphStyle(name, **kw)
-    
-    center_bold = s('CenterBold', fontSize=10, alignment=TA_CENTER, fontName='Helvetica-Bold')
-    center = s('Center', fontSize=8, alignment=TA_CENTER, fontName='Helvetica')
-    left = s('Left', fontSize=8, alignment=TA_LEFT, fontName='Helvetica')
-    left_bold = s('LeftBold', fontSize=8, alignment=TA_LEFT, fontName='Helvetica-Bold')
-    right = s('Right', fontSize=8, alignment=TA_RIGHT, fontName='Helvetica')
-    
-    sede = venta.sede
-    story.append(Paragraph('MotoQFox', center_bold))
-    story.append(Paragraph(sede.name, center))
-    story.append(Spacer(1, 2*mm))
-    story.append(Paragraph(f"Ticket: #{venta.id}", center))
     from django.utils import timezone
-    story.append(Paragraph(f"Fecha: {timezone.localtime(venta.created_at).strftime('%d/%m/%Y %H:%M')}", center))
-    story.append(Paragraph(f"Cajero: {venta.cajero.get_full_name()}", center))
-    story.append(Spacer(1, 3*mm))
-    
-    # We need GRAY_MID which is available at the top of the file
-    story.append(HRFlowable(width=width-6*mm, color=GRAY_MID, spaceBefore=0, spaceAfter=2))
-    
-    items_data = []
+
+    # ── Config fiscal de la sede (opcional) ──────────────────────────────────
+    try:
+        from billing.models import ConfiguracionFiscalSede
+        cfg = ConfiguracionFiscalSede.objects.filter(sede=venta.sede).first()
+    except Exception:
+        cfg = None
+
+    # ── IVA (mismo cálculo que la app: el total YA incluye IVA) ──────────────
+    iva_pct = cfg.iva_tasa if (cfg and cfg.iva_tasa is not None) else Decimal('16')
+    tasa    = iva_pct / Decimal('100')
+    total   = venta.total or Decimal('0')
+    sin_iva = (total / (Decimal('1') + tasa)).quantize(Decimal('0.01'))
+    iva_monto = (total - sin_iva).quantize(Decimal('0.01'))
+    folio   = f"{venta.id:06d}"
+
+    METODO = {'EFECTIVO': 'Efectivo', 'TARJETA': 'Tarjeta', 'TRANSFERENCIA': 'Transferencia'}
+
+    gray = colors.Color(*GRAY_MID)
+    dark = colors.Color(*GRAY_DARK)
+    soft = colors.Color(*GRAY_LIGHT)
+
+    buffer  = io.BytesIO()
+    width   = 80 * mm
+    cw      = width - 6 * mm
+    n_items = venta.items.count()
+    height  = max(150, 115 + n_items * 24 + (8 if (venta.descuento and venta.descuento > 0) else 0)) * mm
+    doc = SimpleDocTemplate(
+        buffer, pagesize=(width, height),
+        rightMargin=3*mm, leftMargin=3*mm, topMargin=5*mm, bottomMargin=5*mm,
+    )
+
+    def stl(name, **kw):
+        return ParagraphStyle(name, **kw)
+    title    = stl('t',   fontSize=11, alignment=TA_CENTER, fontName='Helvetica-Bold', textColor=dark)
+    sub_c    = stl('sc',  fontSize=7,  alignment=TA_CENTER, fontName='Helvetica',      textColor=gray, leading=9)
+    lbl      = stl('l',   fontSize=8,  alignment=TA_LEFT,   fontName='Helvetica',      textColor=gray)
+    val      = stl('v',   fontSize=8,  alignment=TA_RIGHT,  fontName='Helvetica',      textColor=dark)
+    val_b    = stl('vb',  fontSize=8,  alignment=TA_RIGHT,  fontName='Helvetica-Bold', textColor=dark)
+    itm_name = stl('in',  fontSize=8,  alignment=TA_LEFT,   fontName='Helvetica-Bold', textColor=dark, leading=10)
+    itm_sku  = stl('is',  fontSize=7,  alignment=TA_LEFT,   fontName='Helvetica',      textColor=gray, leading=9)
+    col_l    = stl('cl',  fontSize=7,  alignment=TA_LEFT,   fontName='Helvetica',      textColor=gray)
+    col_c    = stl('cc',  fontSize=7,  alignment=TA_CENTER, fontName='Helvetica',      textColor=gray)
+    col_r    = stl('cr',  fontSize=7,  alignment=TA_RIGHT,  fontName='Helvetica',      textColor=gray)
+    num_c    = stl('nc',  fontSize=8,  alignment=TA_CENTER, fontName='Helvetica',      textColor=dark)
+    num_r    = stl('nr',  fontSize=8,  alignment=TA_RIGHT,  fontName='Helvetica',      textColor=dark)
+    num_rb   = stl('nrb', fontSize=8,  alignment=TA_RIGHT,  fontName='Helvetica-Bold', textColor=dark)
+    tot_l    = stl('tl',  fontSize=11, alignment=TA_LEFT,   fontName='Helvetica-Bold', textColor=dark)
+    tot_r    = stl('tr',  fontSize=11, alignment=TA_RIGHT,  fontName='Helvetica-Bold', textColor=dark)
+    ley_st   = stl('ly',  fontSize=7,  alignment=TA_CENTER, fontName='Helvetica',      textColor=gray, leading=10)
+    folio_v  = stl('fv',  fontSize=8,  alignment=TA_RIGHT,  fontName='Helvetica-Bold', textColor=dark)
+
+    NOPAD = TableStyle([
+        ('LEFTPADDING', (0,0), (-1,-1), 0), ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ('TOPPADDING', (0,0), (-1,-1), 1),  ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+    ])
+    COLS = [cw*0.30, cw*0.16, cw*0.26, cw*0.28]
+
+    def dashed():
+        return HRFlowable(width=cw, thickness=0.5, color=gray, dash=(2, 2), spaceBefore=4, spaceAfter=4)
+
+    def kv(label, value, value_style=val):
+        t = Table([[Paragraph(label, lbl), Paragraph(value, value_style)]], colWidths=[cw*0.5, cw*0.5])
+        t.setStyle(NOPAD)
+        return t
+
+    story = []
+
+    # Encabezado
+    story.append(Paragraph(cfg.nombre_comercial if (cfg and cfg.nombre_comercial) else venta.sede.name, title))
+    if cfg:
+        if cfg.nombre_legal and cfg.nombre_legal != cfg.nombre_comercial:
+            story.append(Paragraph(cfg.nombre_legal, sub_c))
+        if cfg.rfc:       story.append(Paragraph(f"RFC: {cfg.rfc}", sub_c))
+        if cfg.direccion: story.append(Paragraph(cfg.direccion, sub_c))
+        if cfg.telefono:  story.append(Paragraph(f"Tel: {cfg.telefono}", sub_c))
+        if cfg.email:     story.append(Paragraph(cfg.email, sub_c))
+    story.append(dashed())
+
+    # Folio / Fecha / Cajero
+    story.append(kv('Folio:', f"#{folio}", folio_v))
+    story.append(kv('Fecha:', timezone.localtime(venta.created_at).strftime('%d/%m/%Y %H:%M')))
+    story.append(kv('Cajero:', venta.cajero.get_full_name() if venta.cajero else '—'))
+    story.append(dashed())
+
+    # Encabezado de columnas
+    head = Table([[Paragraph('Artículo', col_l), Paragraph('Qty', col_c),
+                   Paragraph('Precio', col_r), Paragraph('Importe', col_r)]], colWidths=COLS)
+    head.setStyle(NOPAD)
+    story.append(head)
+    story.append(HRFlowable(width=cw, thickness=0.5, color=soft, spaceBefore=2, spaceAfter=3))
+
+    # Ítems
     for it in venta.items.all():
         if it.producto_id:
-            name = it.producto.name
+            name, sku = it.producto.name, it.producto.sku
         elif getattr(it, 'catalogo_servicio_id', None):
-            name = it.catalogo_servicio.nombre
+            name, sku = it.catalogo_servicio.nombre, None
         else:
-            name = 'Servicio de taller'
-        if len(name) > 20: name = name[:18] + '..'
-        items_data.append([
-            Paragraph(f"{it.quantity}x {name}", left),
-            Paragraph(_fmt(it.subtotal), right)
-        ])
-    
-    if items_data:
-        t = Table(items_data, colWidths=[width*0.65, width*0.25])
-        t.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 1),
-        ]))
-        story.append(t)
-    
-    story.append(HRFlowable(width=width-6*mm, color=GRAY_MID, spaceBefore=2, spaceAfter=2))
-    
-    totals_data = []
-    if venta.descuento:
-        totals_data.append([Paragraph("Subtotal:", left_bold), Paragraph(_fmt(venta.total + venta.descuento), right)])
-        totals_data.append([Paragraph("Descuento:", left), Paragraph("-" + _fmt(venta.descuento), right)])
-    totals_data.append([Paragraph("TOTAL:", left_bold), Paragraph(_fmt(venta.total), right)])
-    totals_data.append([Paragraph(f"Pago ({venta.metodo_pago}):", left), Paragraph(_fmt(venta.monto_pagado), right)])
-    if venta.cambio:
-        totals_data.append([Paragraph("Cambio:", left), Paragraph(_fmt(venta.cambio), right)])
-        
-    t_tot = Table(totals_data, colWidths=[width*0.5, width*0.4])
-    t_tot.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 0),
-        ('RIGHTPADDING', (0,0), (-1,-1), 0),
-    ]))
-    story.append(t_tot)
-    
-    story.append(Spacer(1, 5*mm))
-    story.append(Paragraph("¡Gracias por tu compra!", center_bold))
-    
+            name, sku = 'Servicio de taller', None
+        story.append(Paragraph(name, itm_name))
+        if sku:
+            story.append(Paragraph(f"SKU: {sku}", itm_sku))
+        row = Table([[Paragraph('', num_c), Paragraph(str(it.quantity), num_c),
+                      Paragraph(_fmt(it.unit_price), num_r), Paragraph(_fmt(it.subtotal), num_rb)]],
+                    colWidths=COLS)
+        row.setStyle(NOPAD)
+        story.append(row)
+        story.append(Spacer(1, 2*mm))
+
+    story.append(dashed())
+
+    # Totales
+    story.append(kv('Subtotal:', _fmt(venta.subtotal)))
+    if venta.descuento and venta.descuento > 0:
+        story.append(kv('Descuento:', f"-{_fmt(venta.descuento)}"))
+    story.append(kv('Subtotal sin IVA:', _fmt(sin_iva)))
+    story.append(kv(f"IVA ({iva_pct:g}%):", _fmt(iva_monto)))
+    story.append(HRFlowable(width=cw, thickness=0.5, color=soft, spaceBefore=3, spaceAfter=3))
+    tot = Table([[Paragraph('TOTAL:', tot_l), Paragraph(_fmt(venta.total), tot_r)]], colWidths=[cw*0.5, cw*0.5])
+    tot.setStyle(NOPAD)
+    story.append(tot)
+    story.append(Spacer(1, 3*mm))
+
+    # Pago
+    story.append(kv('Forma de pago:', METODO.get(venta.metodo_pago, venta.metodo_pago or '—')))
+    if venta.metodo_pago == 'EFECTIVO':
+        story.append(kv('Pagado:', _fmt(venta.monto_pagado)))
+        story.append(kv('Cambio:', _fmt(venta.cambio)))
+    story.append(dashed())
+
+    # Leyenda
+    leyenda = cfg.leyenda_ticket if (cfg and cfg.leyenda_ticket) else 'Gracias por su compra.'
+    story.append(Paragraph(leyenda, ley_st))
+
     doc.build(story)
     buffer.seek(0)
     return buffer
