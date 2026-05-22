@@ -238,7 +238,7 @@ def _crear_venta_servicio(servicio, cajero, metodo_pago, monto_pagado):
     VentaItem.objects.create(
         venta=venta,
         tipo='SERVICIO',
-        catalogo_servicio=servicio.catalogo_servicio if servicio.catalogo_servicio_id else None,
+        catalogo_servicio=None,
         quantity=1,
         unit_price=total,
         subtotal=total,

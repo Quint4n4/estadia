@@ -463,6 +463,13 @@ def generate_ticket_venta_pdf(venta) -> io.BytesIO:
     story.append(head)
     story.append(HRFlowable(width=cw, thickness=0.5, color=soft, spaceBefore=2, spaceAfter=3))
 
+    # Descripción del servicio de taller (para ítems sin producto/catálogo)
+    try:
+        _serv = venta.servicios_taller.first()
+    except Exception:
+        _serv = None
+    _serv_desc = (_serv.descripcion if _serv and getattr(_serv, 'descripcion', None) else None)
+
     # Ítems
     for it in venta.items.all():
         if it.producto_id:
@@ -470,7 +477,7 @@ def generate_ticket_venta_pdf(venta) -> io.BytesIO:
         elif getattr(it, 'catalogo_servicio_id', None):
             name, sku = it.catalogo_servicio.nombre, None
         else:
-            name, sku = 'Servicio de taller', None
+            name, sku = (_serv_desc or 'Servicio de taller'), None
         story.append(Paragraph(name, itm_name))
         if sku:
             story.append(Paragraph(f"SKU: {sku}", itm_sku))
