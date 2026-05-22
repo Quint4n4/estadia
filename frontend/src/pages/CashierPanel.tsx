@@ -12,9 +12,10 @@ import SalesHistoryView from '../components/cashier/SalesHistoryView';
 import CajaClosedScreen from '../components/cashier/CajaClosedScreen';
 import ServiciosView from '../components/taller/ServiciosView';
 import HistorialServiciosView from '../components/taller/HistorialServiciosView';
+import RecepcionCorreosView from '../components/cashier/RecepcionCorreosView';
 import '../styles/DashboardPage.css';
 
-type Section    = 'pos' | 'history' | 'servicios' | 'historial_taller';
+type Section    = 'pos' | 'history' | 'servicios' | 'historial_taller' | 'recepcion';
 type CajaStatus = 'loading' | 'cerrada' | 'abierta';
 
 const CashierPanel: React.FC = () => {
@@ -224,6 +225,18 @@ const CashierPanel: React.FC = () => {
           Historial Taller
         </button>
 
+        <button
+          className={`cashier-nav-item${section === 'recepcion' ? ' cashier-nav-item--active' : ''}`}
+          onClick={() => setSection('recepcion')}
+          disabled={cajaStatus !== 'abierta'}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+            <polyline points="22,6 12,13 2,6" />
+          </svg>
+          Recepción / Correos
+        </button>
+
         {/* User info + actions */}
         <div className="cashier-sidebar-footer">
           <div className="cashier-user-info">
@@ -289,6 +302,7 @@ const CashierPanel: React.FC = () => {
                 : section === 'pos'             ? 'Punto de Venta'
                 : section === 'history'         ? 'Ventas del día'
                 : section === 'historial_taller' ? 'Historial Taller'
+                : section === 'recepcion'        ? 'Recepción / Correos'
                 : 'Taller / Servicios'
               }
             </span>
@@ -313,6 +327,7 @@ const CashierPanel: React.FC = () => {
               {section === 'historial_taller' && (
                 <HistorialServiciosView />
               )}
+              {section === 'recepcion'       && <RecepcionCorreosView />}
             </>
           )}
 

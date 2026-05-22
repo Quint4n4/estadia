@@ -6,6 +6,10 @@ from .views import (
     MisComprasView,
     BuscarClienteView,
     ClientePorQRView,
+    RecepcionClientesView,
+    ClienteCorreosView,
+    EditarCorreoClienteView,
+    ReenviarCorreosView,
 )
 
 urlpatterns = [
@@ -15,4 +19,10 @@ urlpatterns = [
     path('mis-compras/',       MisComprasView.as_view()),
     path('buscar/',            BuscarClienteView.as_view()),
     path('por-qr/<uuid:token>/', ClientePorQRView.as_view()),
+
+    # ── Recepción: panel de correos del cliente ──────────────────────────────
+    path('recepcion/clientes/',                   RecepcionClientesView.as_view()),
+    path('recepcion/clientes/<int:pk>/correos/',  ClienteCorreosView.as_view()),
+    path('recepcion/clientes/<int:pk>/correo/',   EditarCorreoClienteView.as_view()),
+    path('recepcion/clientes/<int:pk>/reenviar/', ReenviarCorreosView.as_view()),
 ]

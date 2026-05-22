@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import ClienteProfile
+from .models import ClienteProfile, EmailLog
 from .serializers import (
     ClienteRegistroSerializer,
     ClienteProfileSerializer,
@@ -185,3 +185,167 @@ class ClientePorQRView(APIView):
             return Response({'success': False, 'message': 'Cliente no encontrado.'},
                             status=status.HTTP_404_NOT_FOUND)
         return Response({'success': True, 'data': ClienteBusquedaSerializer(profile).data})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  RECEPCIÓN — Panel de correos del cliente (ver / editar correo / reenviar)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _es_staff(user) -> bool:
+    return bool(user and user.is_authenticated and getattr(user, 'role', None) != 'CUSTOMER')
+
+
+def _logs_de_cliente(profile):
+    """EmailLogs del cliente: vinculados por FK o por su correo actual."""
+    email = profile.usuario.email or ''
+    return EmailLog.objects.filter(Q(cliente=profile) | Q(destinatario__iexact=email))
+
+
+def _reenviar_log(log, to_email) -> bool:
+    """Reenvía un correo registrado (regenera el PDF del ticket si el contexto lo indica)."""
+    from config.email_service import send_email, attachment_from_bytes
+    attachments = None
+    ctx = log.contexto or {}
+    venta_id = ctx.get('venta_id')
+    if venta_id:
+        try:
+            from sales.models import Venta
+            from sales.pdf_service import generate_ticket_venta_pdf
+            venta = Venta.objects.get(pk=venta_id)
+            pdf = generate_ticket_venta_pdf(venta)
+            attachments = [attachment_from_bytes(f'ticket_{venta.id}.pdf', pdf.read())]
+        except Exception:
+            attachments = None
+    return send_email(
+        to=to_email,
+        subject=log.asunto or 'MotoQFox',
+        html=log.html or '<p>(sin contenido)</p>',
+        text=log.texto or None,
+        attachments=attachments,
+        tipo=log.tipo or 'OTRO',
+        cliente=log.cliente,
+        contexto=ctx,
+    )
+
+
+class RecepcionClientesView(APIView):
+    """Lista/búsqueda de clientes con resumen de correos enviados."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        q = request.query_params.get('q', '').strip()
+        qs = ClienteProfile.objects.select_related('usuario')
+        if q:
+            qs = qs.filter(
+                Q(usuario__first_name__icontains=q) |
+                Q(usuario__last_name__icontains=q) |
+                Q(usuario__email__icontains=q) |
+                Q(telefono__icontains=q)
+            )
+        qs = qs.order_by('-created_at')[:30]
+        data = []
+        for p in qs:
+            logs = _logs_de_cliente(p)
+            total = logs.count()
+            data.append({
+                'id': p.id,
+                'nombre': p.usuario.get_full_name(),
+                'email': p.usuario.email or '',
+                'telefono': p.telefono,
+                'correos_total': total,
+                'correos_enviados': logs.filter(enviado=True).count(),
+                'sin_correos': total == 0,
+            })
+        return Response({'success': True, 'data': data})
+
+
+class ClienteCorreosView(APIView):
+    """Historial de correos enviados a un cliente."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            p = ClienteProfile.objects.select_related('usuario').get(pk=pk)
+        except ClienteProfile.DoesNotExist:
+            return Response({'success': False, 'message': 'Cliente no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+        logs = _logs_de_cliente(p).order_by('-created_at')[:100]
+        correos = [{
+            'id': l.id,
+            'asunto': l.asunto,
+            'tipo': l.tipo,
+            'tipo_display': l.get_tipo_display(),
+            'enviado': l.enviado,
+            'error': l.error,
+            'destinatario': l.destinatario,
+            'fecha': l.created_at.isoformat(),
+        } for l in logs]
+        return Response({'success': True, 'data': {
+            'cliente': {
+                'id': p.id,
+                'nombre': p.usuario.get_full_name(),
+                'email': p.usuario.email or '',
+                'telefono': p.telefono,
+            },
+            'correos': correos,
+        }})
+
+
+class EditarCorreoClienteView(APIView):
+    """Editar el correo del cliente (actualiza CustomUser.email)."""
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        if not _es_staff(request.user):
+            return Response({'success': False, 'message': 'Sin permiso.'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            p = ClienteProfile.objects.select_related('usuario').get(pk=pk)
+        except ClienteProfile.DoesNotExist:
+            return Response({'success': False, 'message': 'Cliente no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError
+        nuevo = (request.data.get('email') or '').strip().lower()
+        try:
+            validate_email(nuevo)
+        except ValidationError:
+            return Response({'success': False, 'message': 'Correo inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from users.models import CustomUser
+        if CustomUser.objects.filter(email__iexact=nuevo).exclude(pk=p.usuario_id).exists():
+            return Response({'success': False, 'message': 'Ese correo ya lo usa otro usuario.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        u = p.usuario
+        u.email = nuevo
+        u.save(update_fields=['email'])
+        return Response({'success': True, 'message': 'Correo actualizado.', 'data': {'email': nuevo}})
+
+
+class ReenviarCorreosView(APIView):
+    """Reenvía al cliente todo lo enviado (o un correo específico con log_id)."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if not _es_staff(request.user):
+            return Response({'success': False, 'message': 'Sin permiso.'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            p = ClienteProfile.objects.select_related('usuario').get(pk=pk)
+        except ClienteProfile.DoesNotExist:
+            return Response({'success': False, 'message': 'Cliente no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        email = (p.usuario.email or '').strip()
+        if not email:
+            return Response({'success': False, 'message': 'El cliente no tiene correo. Edítalo primero.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        log_id = request.data.get('log_id')
+        base = _logs_de_cliente(p)
+        logs = base.filter(pk=log_id) if log_id else base.order_by('created_at')
+
+        reenviados = 0
+        for log in logs:
+            if _reenviar_log(log, email):
+                reenviados += 1
+        return Response({
+            'success': True,
+            'message': f'Se reenviaron {reenviados} correo(s) a {email}.',
+            'data': {'reenviados': reenviados, 'email': email},
+        })

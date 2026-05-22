@@ -16,4 +16,21 @@ export const customersService = {
   ): Promise<{ success: boolean; data: { tokens: unknown; profile: ClienteProfile } }> {
     return apiClient.post('/customers/registro/', payload).then(r => r.data);
   },
+
+  // ── Recepción: panel de correos del cliente ────────────────────────────────
+  recepcionClientes(q: string): Promise<{ success: boolean; data: any[] }> {
+    return apiClient.get('/customers/recepcion/clientes/', { params: { q } }).then(r => r.data);
+  },
+  clienteCorreos(id: number): Promise<{ success: boolean; data: any }> {
+    return apiClient.get(`/customers/recepcion/clientes/${id}/correos/`).then(r => r.data);
+  },
+  editarCorreoCliente(id: number, email: string): Promise<{ success: boolean; data: any; message?: string }> {
+    return apiClient.patch(`/customers/recepcion/clientes/${id}/correo/`, { email }).then(r => r.data);
+  },
+  reenviarCorreos(id: number, logId?: number): Promise<{ success: boolean; data: any; message?: string }> {
+    return apiClient.post(
+      `/customers/recepcion/clientes/${id}/reenviar/`,
+      logId ? { log_id: logId } : {},
+    ).then(r => r.data);
+  },
 };
