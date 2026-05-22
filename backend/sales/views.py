@@ -94,7 +94,16 @@ def _send_ticket_background(venta_id: int, email: str) -> None:
             attachments=[attachment_from_bytes(f"ticket_{venta.id}.pdf", pdf_buffer.read())],
         )
     except Exception as e:
-        print(f"[EMAIL] Error enviando ticket: {e}")
+        import traceback
+        err = f'{type(e).__name__}: {e}'
+        print(f"[EMAIL] Error enviando ticket: {err}", flush=True)
+        traceback.print_exc()
+        try:
+            from config.email_service import _log_email
+            _log_email(email or '', f'⚠ Ticket falló: {err}'[:300],
+                       'TICKET_VENTA', None, False, err[:1000], '', '', {'venta_id': venta_id})
+        except Exception:
+            pass
 
 
 # ─── Ventas ───────────────────────────────────────────────────────────────────

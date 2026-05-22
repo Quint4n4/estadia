@@ -411,8 +411,10 @@ class ServicioListView(APIView):
                         servicio.save(update_fields=['venta'])
                     # Enviar ticket del servicio por correo
                     _enviar_ticket_servicio(servicio, email_recibo)
-                except Exception:
-                    pass
+                except Exception as e:
+                    import traceback
+                    print(f'[SERVICIO-PAGO] Error venta/ticket adelantado: {e}', flush=True)
+                    traceback.print_exc()
             return Response(
                 {
                     'success': True,
