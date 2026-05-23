@@ -35,6 +35,14 @@ USERS = [
         'password': 'Admin1234!',
     },
     {
+        'email': 'encargado@motoqfox.com',
+        'first_name': 'Elena',
+        'last_name': 'Encargada',
+        'role': CustomUser.Role.ENCARGADO,
+        'sede': sede,
+        'password': 'Encargado1234!',
+    },
+    {
         'email': 'worker@motoqfox.com',
         'first_name': 'Carlos',
         'last_name': 'Mecánico',
@@ -66,15 +74,22 @@ for u in USERS:
         email=u['email'],
         defaults=u
     )
-    if created:
-        obj.set_password(password)
-        obj.save()
-        print(f"  [OK]  [{obj.role:15}] {obj.email}  pass: {password}")
-    else:
-        print(f"  · Existe  [{obj.role:15}] {obj.email}")
+    # Idempotente: en cada corrida restablece contraseña, rol y sede a los
+    # valores conocidos. Así staging nunca queda con credenciales perdidas
+    # ni cuentas bloqueadas tras pruebas de cambio de contraseña.
+    obj.set_password(password)
+    obj.role = u['role']
+    obj.sede = u['sede']
+    # Liberar cualquier bloqueo por intentos fallidos previos
+    for campo, valor in (('login_attempts', 0), ('locked_until', None), ('is_active', True)):
+        if hasattr(obj, campo):
+            setattr(obj, campo, valor)
+    obj.save()
+    print(f"  [{'creado' if created else 'reset'}]  [{obj.role:15}] {obj.email}  pass: {password}")
 
-print("\n¡Listo! Credenciales de prueba:")
-print("  admin@motoqfox.com    / Admin1234!    → /admin")
-print("  worker@motoqfox.com   / Worker1234!   → /worker")
-print("  cashier@motoqfox.com  / Cashier1234!  → /cashier")
-print("  customer@motoqfox.com / Customer1234! → (sin panel)")
+print("\n¡Listo! Credenciales de prueba (se restablecen en cada deploy):")
+print("  admin@motoqfox.com      / Admin1234!      → /admin")
+print("  encargado@motoqfox.com  / Encargado1234!  → /encargado (control de cajas)")
+print("  worker@motoqfox.com     / Worker1234!     → /worker")
+print("  cashier@motoqfox.com    / Cashier1234!    → /cashier")
+print("  customer@motoqfox.com   / Customer1234!   → (sin panel)")
