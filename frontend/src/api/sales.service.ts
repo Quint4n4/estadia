@@ -5,6 +5,7 @@ import type {
   VentaListResponse,
   CodigoAperturaResponse,
   AperturaCaja,
+  CerrarCajaResponse,
   MiEstadoCajaResponse,
   SedeResumenVentas,
   ReportesData,
@@ -43,8 +44,8 @@ export const salesService = {
 
   // ── Apertura de Caja ──────────────────────────────────────────────────────
 
-  generarCodigoApertura(): Promise<{ success: boolean; data: CodigoAperturaResponse }> {
-    return apiClient.post(`${BASE}/cajas/generar-codigo/`).then(r => r.data);
+  generarCodigoApertura(montoInicial: number): Promise<{ success: boolean; data: CodigoAperturaResponse }> {
+    return apiClient.post(`${BASE}/cajas/generar-codigo/`, { monto_inicial: montoInicial }).then(r => r.data);
   },
 
   abrirCaja(codigo: string): Promise<{ success: boolean; message: string; data: AperturaCaja }> {
@@ -55,8 +56,9 @@ export const salesService = {
     return apiClient.get(`${BASE}/cajas/mi-estado/`).then(r => r.data);
   },
 
-  cerrarCaja(aperturaId: number): Promise<{ success: boolean; message: string; data: AperturaCaja }> {
-    return apiClient.post(`${BASE}/cajas/${aperturaId}/cerrar/`).then(r => r.data);
+  cerrarCaja(aperturaId: number, efectivoContado?: number): Promise<CerrarCajaResponse> {
+    const body = efectivoContado !== undefined ? { efectivo_contado: efectivoContado } : {};
+    return apiClient.post(`${BASE}/cajas/${aperturaId}/cerrar/`, body).then(r => r.data);
   },
 
   cajasActivas(): Promise<{ success: boolean; data: AperturaCaja[] }> {

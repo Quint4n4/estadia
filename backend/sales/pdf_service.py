@@ -26,10 +26,12 @@ def _fmt(value) -> str:
         return "$0.00"
 
 
-def generate_reporte_caja_pdf(apertura) -> io.BytesIO:
+def generate_reporte_caja_pdf(apertura, efectivo_contado=None) -> io.BytesIO:
     """
     Generates a PDF report for the given AperturaCaja.
     Returns a BytesIO buffer ready to be saved as a FileField.
+
+    efectivo_contado: efectivo físico contado al cerrar (opcional, Decimal).
     """
     try:
         from reportlab.lib.pagesizes import letter
@@ -214,6 +216,65 @@ def generate_reporte_caja_pdf(apertura) -> io.BytesIO:
     story.append(summary_table)
     story.append(Spacer(1, 0.5*cm))
 
+    # ── Corte de efectivo ───────────────────────────────────────────────────────
+    fondo_inicial     = Decimal(str(apertura.monto_inicial or 0))
+    efectivo_esperado = (fondo_inicial + monto_efect).quantize(Decimal('0.01'))
+    contado_dec = None
+    if efectivo_contado is not None:
+        contado_dec = Decimal(str(efectivo_contado))
+    diferencia = (contado_dec - efectivo_esperado) if contado_dec is not None else None
+
+    story.append(Paragraph('Corte de efectivo (cajón)', section_style))
+    corte_data = [
+        ['Concepto', 'Monto'],
+        ['Fondo inicial (para cambio)',           _fmt(fondo_inicial)],
+        ['(+) Ventas cobradas en efectivo',       _fmt(monto_efect)],
+        ['(=) Efectivo esperado en cajón',        _fmt(efectivo_esperado)],
+    ]
+    if contado_dec is not None:
+        corte_data.append(['Efectivo contado físicamente', _fmt(contado_dec)])
+        signo = '' if diferencia == 0 else ('+' if diferencia > 0 else '−')
+        etiqueta = 'Sin diferencia' if diferencia == 0 else ('Sobrante' if diferencia > 0 else 'Faltante')
+        corte_data.append([f'Diferencia ({etiqueta})', f'{signo}{_fmt(abs(diferencia))}'])
+    else:
+        corte_data.append(['Efectivo contado físicamente', 'No capturado'])
+
+    corte_table = Table(corte_data, colWidths=[W*0.65, W*0.35])
+    n_filas = len(corte_data)
+    esperado_row = 3  # fila "Efectivo esperado en cajón"
+    corte_style = [
+        ('BACKGROUND',    (0,0), (-1,0), rl_blue_dark),
+        ('TEXTCOLOR',     (0,0), (-1,0), rl_white),
+        ('FONTNAME',      (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE',      (0,0), (-1,0), 9),
+        ('ALIGN',         (1,0), (1,-1), 'RIGHT'),
+        ('FONTNAME',      (0,1), (-1,-1), 'Helvetica'),
+        ('FONTSIZE',      (0,1), (-1,-1), 9),
+        # Resaltar la fila del efectivo esperado
+        ('BACKGROUND',    (0,esperado_row), (-1,esperado_row), rl_blue_bg),
+        ('FONTNAME',      (0,esperado_row), (-1,esperado_row), 'Helvetica-Bold'),
+        ('TOPPADDING',    (0,0), (-1,-1), 7),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 7),
+        ('LEFTPADDING',   (0,0), (-1,-1), 10),
+        ('BOX',           (0,0), (-1,-1), 0.5, rl_gray_light),
+        ('INNERGRID',     (0,0), (-1,-1), 0.25, rl_gray_light),
+    ]
+    if contado_dec is not None:
+        dif_row = n_filas - 1
+        dif_color = rl_green if diferencia > 0 else (rl_red if diferencia < 0 else rl_black)
+        corte_style += [
+            ('FONTNAME',  (0,dif_row), (-1,dif_row), 'Helvetica-Bold'),
+            ('FONTSIZE',  (0,dif_row), (-1,dif_row), 10),
+            ('TEXTCOLOR', (0,dif_row), (-1,dif_row), dif_color),
+        ]
+    corte_table.setStyle(TableStyle(corte_style))
+    story.append(corte_table)
+    story.append(Paragraph(
+        'Tarjeta y transferencia NO son efectivo físico: ese dinero va al banco, no al cajón.',
+        small_style
+    ))
+    story.append(Spacer(1, 0.5*cm))
+
     # ── Ventas detail ─────────────────────────────────────────────────────────
     if completadas.exists():
         story.append(Paragraph(f'Detalle de ventas completadas ({n_completadas})', section_style))
@@ -298,10 +359,12 @@ def generate_reporte_caja_pdf(apertura) -> io.BytesIO:
     return buffer
 
 
-def build_reporte_from_apertura(apertura) -> 'ReporteCaja':
+def build_reporte_from_apertura(apertura, efectivo_contado=None) -> 'ReporteCaja':
     """
     Generates the PDF, creates and returns a ReporteCaja instance.
     Called from CerrarCajaView after saving the apertura.
+
+    efectivo_contado: efectivo físico contado por el cajero al cerrar (opcional).
     """
     from django.core.files.base import ContentFile
     from django.db.models import Sum, Q
@@ -331,8 +394,20 @@ def build_reporte_from_apertura(apertura) -> 'ReporteCaja':
     def dec(val):
         return Decimal(str(val or 0))
 
-    # Build PDF
-    pdf_buffer = generate_reporte_caja_pdf(apertura)
+    # ── Corte de efectivo ──────────────────────────────────────────────
+    fondo_inicial     = dec(apertura.monto_inicial)
+    monto_efect       = dec(agg['monto_efectivo'])
+    efectivo_esperado = (fondo_inicial + monto_efect).quantize(Decimal('0.01'))
+    contado = None
+    if efectivo_contado is not None:
+        contado = dec(efectivo_contado)
+    diferencia = (
+        (contado - efectivo_esperado).quantize(Decimal('0.01'))
+        if contado is not None else Decimal('0')
+    )
+
+    # Build PDF (le pasamos el conteo para mostrar el corte en el PDF)
+    pdf_buffer = generate_reporte_caja_pdf(apertura, efectivo_contado=contado)
 
     from django.utils import timezone as tz
     fecha_str = tz.localtime(apertura.fecha_cierre or tz.now()).strftime('%Y%m%d_%H%M')
@@ -343,10 +418,14 @@ def build_reporte_from_apertura(apertura) -> 'ReporteCaja':
         total_ventas        = completadas.count(),
         total_canceladas    = canceladas.count(),
         monto_total         = dec(agg['monto_total']),
-        monto_efectivo      = dec(agg['monto_efectivo']),
+        monto_efectivo      = monto_efect,
         monto_tarjeta       = dec(agg['monto_tarjeta']),
         monto_transferencia = dec(agg['monto_transf']),
         total_descuentos    = dec(agg['total_descuentos']),
+        monto_inicial       = fondo_inicial,
+        efectivo_esperado   = efectivo_esperado,
+        efectivo_contado    = contado,
+        diferencia          = diferencia,
     )
     reporte.archivo.save(filename, ContentFile(pdf_buffer.read()), save=True)
     return reporte

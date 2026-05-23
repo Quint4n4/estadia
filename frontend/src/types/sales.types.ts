@@ -77,8 +77,9 @@ export interface VentaListResponse {
 // ── Apertura de Caja ──────────────────────────────────────────────────────────
 
 export interface CodigoAperturaResponse {
-  codigo:     string;
-  expires_at: string;
+  codigo:        string;
+  monto_inicial: string;
+  expires_at:    string;
 }
 
 export interface AperturaCaja {
@@ -87,9 +88,28 @@ export interface AperturaCaja {
   cajero:              number;
   cajero_name:         string;
   autorizado_por_name: string;
+  monto_inicial:       string;
   fecha_apertura:      string;
   fecha_cierre:        string | null;
   status:              'ABIERTA' | 'CERRADA';
+}
+
+// Corte de efectivo devuelto al cerrar la caja
+export interface CorteCaja {
+  monto_inicial:       string;
+  efectivo_ventas:     string;
+  efectivo_esperado:   string;
+  efectivo_contado:    string | null;
+  diferencia:          string | null;
+  monto_tarjeta:       string;
+  monto_transferencia: string;
+}
+
+export interface CerrarCajaResponse {
+  success: boolean;
+  message: string;
+  data:    AperturaCaja;
+  corte:   CorteCaja;
 }
 
 export interface MiEstadoCajaResponse {

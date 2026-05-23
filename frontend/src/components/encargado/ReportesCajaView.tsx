@@ -15,6 +15,10 @@ interface ReporteCaja {
   monto_tarjeta: string;
   monto_transferencia: string;
   total_descuentos: string;
+  monto_inicial: string;
+  efectivo_esperado: string;
+  efectivo_contado: string | null;
+  diferencia: string;
   tiene_archivo: boolean;
   created_at: string;
 }
@@ -132,6 +136,7 @@ const ReportesCajaView: React.FC<Props> = ({ sedeId, showSede = false }) => {
                   <Th right>Canceladas</Th>
                   <Th right>Total neto</Th>
                   <Th right>Descuentos</Th>
+                  <Th center>Corte efectivo</Th>
                   <Th center>PDF</Th>
                 </tr>
               </thead>
@@ -171,6 +176,7 @@ const ReportesCajaView: React.FC<Props> = ({ sedeId, showSede = false }) => {
                     <Td right style={{ color: 'var(--color-text-secondary)' }}>
                       {Number(r.total_descuentos) > 0 ? fmt(r.total_descuentos) : '—'}
                     </Td>
+                    <Td center><CorteBadge r={r} /></Td>
                     <Td center>
                       {r.tiene_archivo ? (
                         <button
@@ -278,6 +284,16 @@ const ReportesCajaView: React.FC<Props> = ({ sedeId, showSede = false }) => {
                     </span>
                   )}
                 </div>
+
+                {/* Corte de efectivo */}
+                <div style={{
+                  display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
+                  fontSize: 12, color: 'var(--color-text-secondary)',
+                  borderTop: '1px solid var(--color-border)', paddingTop: 8,
+                }}>
+                  <span>Esperado en cajón: <strong>{fmt(r.efectivo_esperado)}</strong></span>
+                  <CorteBadge r={r} />
+                </div>
               </div>
             ))}
           </div>
@@ -329,6 +345,28 @@ const ReportesCajaView: React.FC<Props> = ({ sedeId, showSede = false }) => {
         </div>
       )}
     </div>
+  );
+};
+
+// ── Corte de efectivo (faltante / sobrante / cuadra) ────────────────────────────
+
+const CorteBadge: React.FC<{ r: ReporteCaja }> = ({ r }) => {
+  if (r.efectivo_contado == null) {
+    return <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>Sin conteo</span>;
+  }
+  const dif = Number(r.diferencia);
+  const cuadra = dif === 0;
+  const sobra  = dif > 0;
+  const bg    = cuadra ? '#c6f6d5' : sobra ? '#bee3f8' : '#fed7d7';
+  const color = cuadra ? '#276749' : sobra ? '#2b6cb0' : '#c53030';
+  const label = cuadra ? 'Cuadra ✓' : `${sobra ? 'Sobró +' : 'Faltó −'}${fmt(Math.abs(dif))}`;
+  return (
+    <span style={{
+      background: bg, color, borderRadius: 999, padding: '3px 10px',
+      fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
+    }}>
+      {label}
+    </span>
   );
 };
 

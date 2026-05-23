@@ -27,15 +27,28 @@ def _not_found(entity='Recurso'):
 
 
 # PERF-005: PDF is best-effort — generate in background so it never blocks cierre response
-def _generate_pdf_background(apertura_id: int) -> None:
+def _generate_pdf_background(apertura_id: int, efectivo_contado=None) -> None:
     """Genera el ReporteCaja PDF en background para no bloquear la respuesta al cajero."""
     try:
         from .models import AperturaCaja
         from .pdf_service import build_reporte_from_apertura
         apertura = AperturaCaja.objects.select_related('sede', 'cajero').get(pk=apertura_id)
-        build_reporte_from_apertura(apertura)
+        build_reporte_from_apertura(apertura, efectivo_contado=efectivo_contado)
     except Exception:
         pass  # PDF es best-effort; un fallo aquí nunca debe afectar al cierre
+
+
+def _parse_monto(valor, default=None):
+    """Convierte un valor del request a Decimal >= 0. Devuelve default si está vacío/ inválido."""
+    if valor is None or valor == '':
+        return default
+    try:
+        d = Decimal(str(valor))
+    except Exception:
+        return default
+    if d < 0:
+        return default
+    return d.quantize(Decimal('0.01'))
 
 
 def _paginate(qs, request, default_size=20):
@@ -293,19 +306,28 @@ class GenerarCodigoView(APIView):
                 {'success': False, 'message': 'Tu cuenta no tiene sede asignada.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        monto_inicial = _parse_monto(request.data.get('monto_inicial'), default=Decimal('0'))
+        if monto_inicial is None:
+            return Response(
+                {'success': False, 'message': 'El fondo inicial debe ser un número mayor o igual a 0.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         codigo     = str(random.randint(0, 999999)).zfill(6)
         expires_at = timezone.now() + timedelta(minutes=30)
         CodigoApertura.objects.create(
             sede=request.user.sede,
             generado_por=request.user,
             codigo=codigo,
+            monto_inicial=monto_inicial,
             expires_at=expires_at,
         )
         return Response({
             'success': True,
             'data': {
-                'codigo':     codigo,
-                'expires_at': expires_at.isoformat(),
+                'codigo':        codigo,
+                'monto_inicial': str(monto_inicial),
+                'expires_at':    expires_at.isoformat(),
             },
         }, status=status.HTTP_201_CREATED)
 
@@ -361,6 +383,7 @@ class AbrirCajaView(APIView):
             cajero=request.user,
             autorizado_por=codigo_obj.generado_por,
             codigo=codigo_obj,
+            monto_inicial=codigo_obj.monto_inicial,
         )
         return Response({
             'success': True,
@@ -409,14 +432,49 @@ class CerrarCajaView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Efectivo físico contado por el cajero (opcional)
+        efectivo_contado = _parse_monto(request.data.get('efectivo_contado'), default=None)
+
         apertura.status       = AperturaCaja.Status.CERRADA
         apertura.fecha_cierre = timezone.now()
         apertura.save(update_fields=['status', 'fecha_cierre'])
 
+        # ── Corte de efectivo (se calcula al instante para mostrarlo al cajero) ──
+        agg = Venta.objects.filter(
+            sede=apertura.sede,
+            cajero=apertura.cajero,
+            status=Venta.Status.COMPLETADA,
+            created_at__gte=apertura.fecha_apertura,
+            created_at__lte=apertura.fecha_cierre,
+        ).aggregate(
+            efectivo=Sum('total', filter=Q(metodo_pago='EFECTIVO')),
+            tarjeta=Sum('total', filter=Q(metodo_pago='TARJETA')),
+            transferencia=Sum('total', filter=Q(metodo_pago='TRANSFERENCIA')),
+        )
+        monto_efectivo    = agg['efectivo']      or Decimal('0')
+        monto_tarjeta     = agg['tarjeta']       or Decimal('0')
+        monto_transf      = agg['transferencia'] or Decimal('0')
+        fondo_inicial     = apertura.monto_inicial or Decimal('0')
+        efectivo_esperado = (fondo_inicial + monto_efectivo).quantize(Decimal('0.01'))
+        diferencia        = (
+            (efectivo_contado - efectivo_esperado).quantize(Decimal('0.01'))
+            if efectivo_contado is not None else None
+        )
+
+        corte = {
+            'monto_inicial':       str(fondo_inicial),
+            'efectivo_ventas':     str(monto_efectivo),
+            'efectivo_esperado':   str(efectivo_esperado),
+            'efectivo_contado':    str(efectivo_contado) if efectivo_contado is not None else None,
+            'diferencia':          str(diferencia) if diferencia is not None else None,
+            'monto_tarjeta':       str(monto_tarjeta),
+            'monto_transferencia': str(monto_transf),
+        }
+
         # PERF-005: Generate PDF in background thread so it never blocks the HTTP response
         thread = threading.Thread(
             target=_generate_pdf_background,
-            args=(apertura.id,),
+            args=(apertura.id, efectivo_contado),
             daemon=True,
         )
         thread.start()
@@ -425,6 +483,7 @@ class CerrarCajaView(APIView):
             'success': True,
             'message': 'Caja cerrada correctamente.',
             'data': AperturaCajaSerializer(apertura).data,
+            'corte': corte,
         })
 
 

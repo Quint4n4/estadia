@@ -323,7 +323,8 @@ class AperturaCajaSerializer(serializers.ModelSerializer):
         model  = AperturaCaja
         fields = (
             'id', 'sede', 'cajero', 'cajero_name',
-            'autorizado_por_name', 'fecha_apertura', 'fecha_cierre', 'status',
+            'autorizado_por_name', 'monto_inicial',
+            'fecha_apertura', 'fecha_cierre', 'status',
         )
 
 
@@ -343,7 +344,9 @@ class ReporteCajaSerializer(serializers.ModelSerializer):
             'fecha_apertura', 'fecha_cierre',
             'total_ventas', 'total_canceladas',
             'monto_total', 'monto_efectivo', 'monto_tarjeta', 'monto_transferencia',
-            'total_descuentos', 'tiene_archivo', 'created_at',
+            'total_descuentos',
+            'monto_inicial', 'efectivo_esperado', 'efectivo_contado', 'diferencia',
+            'tiene_archivo', 'created_at',
         )
 
     def get_tiene_archivo(self, obj):

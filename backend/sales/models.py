@@ -134,6 +134,11 @@ class CodigoApertura(models.Model):
         related_name='codigos_generados', verbose_name='Generado por'
     )
     codigo       = models.CharField(max_length=6, verbose_name='Código')
+    monto_inicial = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        verbose_name='Fondo inicial',
+        help_text='Efectivo con el que se abre la caja para dar cambio.'
+    )
     expires_at   = models.DateTimeField(verbose_name='Expira el')
     created_at   = models.DateTimeField(auto_now_add=True, verbose_name='Generado el')
 
@@ -169,6 +174,11 @@ class AperturaCaja(models.Model):
     codigo         = models.ForeignKey(
         CodigoApertura, on_delete=models.PROTECT,
         verbose_name='Código usado'
+    )
+    monto_inicial  = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        verbose_name='Fondo inicial',
+        help_text='Efectivo con el que se abrió la caja (copiado del código).'
     )
     fecha_apertura = models.DateTimeField(auto_now_add=True, verbose_name='Fecha de apertura')
     fecha_cierre   = models.DateTimeField(null=True, blank=True, verbose_name='Fecha de cierre')
@@ -219,6 +229,26 @@ class ReporteCaja(models.Model):
     monto_tarjeta       = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     monto_transferencia = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total_descuentos    = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # ── Corte de efectivo ──────────────────────────────────────────────
+    monto_inicial       = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        verbose_name='Fondo inicial'
+    )
+    efectivo_esperado   = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        verbose_name='Efectivo esperado en caja',
+        help_text='Fondo inicial + ventas en efectivo.'
+    )
+    efectivo_contado    = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        verbose_name='Efectivo contado',
+        help_text='Efectivo físico contado al cerrar (lo captura el cajero).'
+    )
+    diferencia          = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        verbose_name='Diferencia',
+        help_text='Contado − esperado. Negativo = faltante, positivo = sobrante.'
+    )
     created_at          = models.DateTimeField(auto_now_add=True)
 
     class Meta:

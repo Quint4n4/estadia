@@ -10,6 +10,7 @@ import { db } from '../db/localDB';
 import POSView from '../components/cashier/POSView';
 import SalesHistoryView from '../components/cashier/SalesHistoryView';
 import CajaClosedScreen from '../components/cashier/CajaClosedScreen';
+import CerrarCajaModal from '../components/cashier/CerrarCajaModal';
 import ServiciosView from '../components/taller/ServiciosView';
 import HistorialServiciosView from '../components/taller/HistorialServiciosView';
 import RecepcionCorreosView from '../components/cashier/RecepcionCorreosView';
@@ -28,6 +29,7 @@ const CashierPanel: React.FC = () => {
   const [showArchivarModal, setShowArchivarModal] = useState(false);
   const [archivando,        setArchivando]        = useState(false);
   const [archivarMsg,       setArchivarMsg]        = useState('');
+  const [showCerrarModal,   setShowCerrarModal]    = useState(false);
 
   const sedeId   = user?.sede?.id ?? 0;
   const cajeroId = user?.id ?? 0;
@@ -116,16 +118,16 @@ const CashierPanel: React.FC = () => {
     });
   };
 
-  const handleCerrarCaja = async () => {
-    if (!aperturaId) return;
-    try {
-      await salesService.cerrarCaja(aperturaId);
-      // Actualizar estado local
-      await db.apertura_caja.update(aperturaId, { status: 'CERRADA' });
-      setAperturaId(null);
-      setCajaStatus('cerrada');
-      setSection('pos');
-    } catch { /* ignore */ }
+  // El cierre real lo hace CerrarCajaModal (pide el conteo y muestra el corte).
+  // Aquí solo finalizamos el estado local cuando el modal confirma el cierre.
+  const finalizarCierreLocal = async () => {
+    if (aperturaId) {
+      try { await db.apertura_caja.update(aperturaId, { status: 'CERRADA' }); } catch { /* ignore */ }
+    }
+    setShowCerrarModal(false);
+    setAperturaId(null);
+    setCajaStatus('cerrada');
+    setSection('pos');
   };
 
   const handleLogout = () => {
@@ -264,7 +266,7 @@ const CashierPanel: React.FC = () => {
           )}
           {cajaStatus === 'abierta' && (
             <button
-              onClick={handleCerrarCaja}
+              onClick={() => setShowCerrarModal(true)}
               className="cashier-nav-item"
               style={{ color: '#c05621', padding: '8px 0' }}
             >
@@ -397,6 +399,14 @@ const CashierPanel: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {showCerrarModal && aperturaId && (
+        <CerrarCajaModal
+          aperturaId={aperturaId}
+          onCancel={() => setShowCerrarModal(false)}
+          onClosed={finalizarCierreLocal}
+        />
       )}
 
     </div>

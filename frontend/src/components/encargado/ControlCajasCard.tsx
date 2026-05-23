@@ -8,6 +8,8 @@ interface Props {
 
 const ControlCajasCard: React.FC<Props> = ({ sedeId }) => {
   const [codigo,       setCodigo]       = useState<string | null>(null);
+  const [montoCodigo,  setMontoCodigo]  = useState<string | null>(null);
+  const [fondoInput,   setFondoInput]   = useState('');
   const [expiresAt,    setExpiresAt]    = useState<Date | null>(null);
   const [secondsLeft,  setSecondsLeft]  = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -52,17 +54,24 @@ const ControlCajasCard: React.FC<Props> = ({ sedeId }) => {
   };
 
   const handleGenerar = async () => {
+    const fondo = parseFloat(fondoInput || '0');
+    if (isNaN(fondo) || fondo < 0) return;
     setIsGenerating(true);
     try {
-      const res = await salesService.generarCodigoApertura();
+      const res = await salesService.generarCodigoApertura(fondo);
       setCodigo(res.data.codigo);
+      setMontoCodigo(res.data.monto_inicial);
       setExpiresAt(new Date(res.data.expires_at));
       loadCajasActivas();
     } catch {
+      /* el error se ignora; el botón vuelve a habilitarse en finally */
     } finally {
       setIsGenerating(false);
     }
   };
+
+  const fmtMoneda = (val: string | number) =>
+    Number(val).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 
   const mins = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
   const secs = String(secondsLeft % 60).padStart(2, '0');
@@ -72,31 +81,49 @@ const ControlCajasCard: React.FC<Props> = ({ sedeId }) => {
       background: '#fff', borderRadius: 12, padding: '20px 24px',
       boxShadow: '0 1px 3px rgba(0,0,0,.08)', border: '1px solid #e2e8f0', marginBottom: 20,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#4a5568' }}>
+      <div style={{ marginBottom: 16 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: '#4a5568' }}>
           Control de cajas
         </h3>
-        {!codigo ? (
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 200px' }}>
+            <label htmlFor="fondo-inicial" style={{ display: 'block', fontSize: 12, color: '#718096', fontWeight: 600, marginBottom: 4 }}>
+              Fondo inicial (efectivo para cambio)
+            </label>
+            <div style={{ position: 'relative' }}>
+              <span style={{
+                position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+                color: '#a0aec0', fontSize: 14, fontWeight: 600,
+              }}>$</span>
+              <input
+                id="fondo-inicial"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={fondoInput}
+                onChange={e => setFondoInput(e.target.value)}
+                placeholder="0.00"
+                style={{
+                  width: '100%', padding: '9px 12px 9px 26px', borderRadius: 8,
+                  border: '1px solid #e2e8f0', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+          </div>
           <button
-            className="btn-primary"
-            style={{ fontSize: 13 }}
+            className={codigo ? 'btn-secondary' : 'btn-primary'}
+            style={{ fontSize: 13, height: 40 }}
             onClick={handleGenerar}
-            disabled={isGenerating}
+            disabled={isGenerating || fondoInput.trim() === ''}
             aria-label="Generar código de apertura de caja"
           >
-            {isGenerating ? 'Generando…' : 'Generar código de apertura'}
+            {isGenerating ? 'Generando…' : codigo ? 'Generar nuevo' : 'Generar código'}
           </button>
-        ) : (
-          <button
-            className="btn-secondary"
-            style={{ fontSize: 13 }}
-            onClick={handleGenerar}
-            disabled={isGenerating}
-            aria-label="Generar un nuevo código de apertura de caja"
-          >
-            Generar nuevo
-          </button>
-        )}
+        </div>
+        <p style={{ margin: '6px 0 0', fontSize: 11, color: '#a0aec0' }}>
+          Este es el efectivo con el que el cajero abrirá la caja para dar cambio.
+        </p>
       </div>
 
       {/* Código activo */}
@@ -125,6 +152,14 @@ const ControlCajasCard: React.FC<Props> = ({ sedeId }) => {
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
+            {montoCodigo != null && (
+              <>
+                <p style={{ margin: '0 0 2px', fontSize: 11, color: '#64748b' }}>Fondo inicial</p>
+                <p style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, color: '#1D4ED8' }}>
+                  {fmtMoneda(montoCodigo)}
+                </p>
+              </>
+            )}
             <p style={{ margin: '0 0 4px', fontSize: 11, color: '#64748b' }}>Expira en</p>
             <p style={{
               margin: 0, fontSize: 22, fontWeight: 700,
@@ -172,6 +207,9 @@ const ControlCajasCard: React.FC<Props> = ({ sedeId }) => {
                     <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{c.cajero_name}</p>
                     <p style={{ margin: 0, fontSize: 11, color: '#718096' }}>
                       Desde {new Date(c.fecha_apertura).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                      {c.monto_inicial != null && Number(c.monto_inicial) > 0 && (
+                        <> · Fondo {fmtMoneda(c.monto_inicial)}</>
+                      )}
                     </p>
                     <span style={{ fontSize: 11, ...estiloTiempo }}>
                       {mins > 240 ? '⚠️ ' : ''}{tiempoTexto}
