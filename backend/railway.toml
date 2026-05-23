@@ -2,7 +2,9 @@
 builder = "nixpacks"
 buildCommand = "pip install -r requirements.txt"
 
+# PRODUCCIÓN: migrate REAL (crea las columnas/tablas nuevas) y SIN seeds
+# (los seeds son solo de staging y borrarían/alterarían datos reales).
 [deploy]
-startCommand = "python manage.py collectstatic --noinput && python manage.py migrate && (python seed_dev.py || true) && (python seed_test_data.py || true) && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
+startCommand = "python manage.py collectstatic --noinput && python manage.py migrate && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
