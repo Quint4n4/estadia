@@ -63,8 +63,8 @@ const ReportesView: React.FC<Props> = ({ sedes }) => {
   const downloadVentas = () => {
     if (!data) return;
     const rows: string[][] = [
-      ['Fecha', 'Cantidad de ventas', 'Monto total'],
-      ...data.ventas_por_dia.map((v: VentaPorDia) => [v.fecha, String(v.cantidad), v.monto]),
+      ['Fecha', 'Cantidad de ventas', 'Ingresos', 'Costo', 'Ganancia'],
+      ...data.ventas_por_dia.map((v: VentaPorDia) => [v.fecha, String(v.cantidad), v.monto, v.costo ?? '0', v.ganancia ?? '0']),
     ];
     downloadCsv(`ventas_por_dia_${fechaDesde}_${fechaHasta}.csv`, rows);
   };
@@ -72,8 +72,8 @@ const ReportesView: React.FC<Props> = ({ sedes }) => {
   const downloadTopProductos = () => {
     if (!data) return;
     const rows: string[][] = [
-      ['SKU', 'Producto', 'Unidades vendidas', 'Monto total'],
-      ...data.top_productos.map((p: TopProducto) => [p.sku, p.producto_name, String(p.total_vendidos), p.monto_total]),
+      ['SKU', 'Producto', 'Unidades vendidas', 'Ingresos', 'Costo', 'Ganancia'],
+      ...data.top_productos.map((p: TopProducto) => [p.sku, p.producto_name, String(p.total_vendidos), p.monto_total, p.costo_total ?? '0', p.ganancia ?? '0']),
     ];
     downloadCsv(`top_productos_${fechaDesde}_${fechaHasta}.csv`, rows);
   };
@@ -88,7 +88,10 @@ const ReportesView: React.FC<Props> = ({ sedes }) => {
       [''],
       ['Métrica', 'Valor'],
       ['Total ventas completadas', String(resumen.total_ventas)],
-      ['Monto total vendido',      resumen.monto_total],
+      ['Ingresos',                 resumen.monto_total],
+      ['Costo (inversión)',        resumen.costo_total ?? '0'],
+      ['Ganancia',                 resumen.ganancia_total ?? '0'],
+      ['Margen %',                 resumen.margen_pct ?? '0'],
       ['Total cancelaciones',      String(resumen.total_cancelaciones)],
       ['Monto cancelaciones',      resumen.monto_cancelaciones],
     ];
@@ -148,7 +151,10 @@ const ReportesView: React.FC<Props> = ({ sedes }) => {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
             {[
               { label: 'Ventas completadas', value: data.resumen.total_ventas,        color: 'var(--color-primary)',  isNum: true  },
-              { label: 'Monto total',         value: fmt(data.resumen.monto_total),    color: 'var(--color-success)',  isNum: false },
+              { label: 'Ingresos',            value: fmt(data.resumen.monto_total),    color: '#2d3748',               isNum: false },
+              { label: 'Costo (inversión)',   value: fmt(data.resumen.costo_total ?? '0'),   color: '#c05621',         isNum: false },
+              { label: 'Ganancia',            value: fmt(data.resumen.ganancia_total ?? '0'),color: '#276749',         isNum: false },
+              { label: 'Margen',              value: `${data.resumen.margen_pct ?? '0'}%`,   color: '#276749',         isNum: true  },
               { label: 'Cancelaciones',        value: data.resumen.total_cancelaciones,color: '#c53030',               isNum: true  },
               { label: 'Monto cancelado',      value: fmt(data.resumen.monto_cancelaciones), color: '#c53030',         isNum: false },
             ].map(k => (
@@ -176,7 +182,8 @@ const ReportesView: React.FC<Props> = ({ sedes }) => {
                     <tr>
                       <th>Fecha</th>
                       <th style={{ textAlign: 'center' }}>Ventas</th>
-                      <th style={{ textAlign: 'right' }}>Monto</th>
+                      <th style={{ textAlign: 'right' }}>Ingresos</th>
+                      <th style={{ textAlign: 'right' }}>Ganancia</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -184,7 +191,8 @@ const ReportesView: React.FC<Props> = ({ sedes }) => {
                       <tr key={v.fecha}>
                         <td>{v.fecha}</td>
                         <td style={{ textAlign: 'center' }}>{v.cantidad}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)' }}>{fmt(v.monto)}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: '#2d3748' }}>{fmt(v.monto)}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: '#276749' }}>{fmt(v.ganancia ?? '0')}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -192,7 +200,8 @@ const ReportesView: React.FC<Props> = ({ sedes }) => {
                     <tr style={{ borderTop: '2px solid var(--color-border)', background: 'var(--color-bg-main)' }}>
                       <td style={{ fontWeight: 700 }}>Total</td>
                       <td style={{ textAlign: 'center', fontWeight: 700 }}>{data.resumen.total_ventas}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)' }}>{fmt(data.resumen.monto_total)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#2d3748' }}>{fmt(data.resumen.monto_total)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#276749' }}>{fmt(data.resumen.ganancia_total ?? '0')}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -219,7 +228,8 @@ const ReportesView: React.FC<Props> = ({ sedes }) => {
                       <th>SKU</th>
                       <th>Producto</th>
                       <th style={{ textAlign: 'center' }}>Unidades</th>
-                      <th style={{ textAlign: 'right' }}>Monto total</th>
+                      <th style={{ textAlign: 'right' }}>Ingresos</th>
+                      <th style={{ textAlign: 'right' }}>Ganancia</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -229,7 +239,8 @@ const ReportesView: React.FC<Props> = ({ sedes }) => {
                         <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{p.sku}</td>
                         <td style={{ fontWeight: 600 }}>{p.producto_name}</td>
                         <td style={{ textAlign: 'center', fontWeight: 700 }}>{p.total_vendidos}</td>
-                        <td style={{ textAlign: 'right', color: 'var(--color-primary)', fontWeight: 700 }}>{fmt(p.monto_total)}</td>
+                        <td style={{ textAlign: 'right', color: '#2d3748', fontWeight: 700 }}>{fmt(p.monto_total)}</td>
+                        <td style={{ textAlign: 'right', color: '#276749', fontWeight: 700 }}>{fmt(p.ganancia ?? '0')}</td>
                       </tr>
                     ))}
                   </tbody>
