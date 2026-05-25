@@ -6,7 +6,7 @@ import threading
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import F, Sum, Count, Q, DecimalField
+from django.db.models import F, Sum, Count, Q, DecimalField, ExpressionWrapper
 from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 from decimal import Decimal
@@ -569,7 +569,32 @@ class AdminResumenView(APIView):
             )
         )
 
-        # ── Query 3: cajas abiertas — una sola query para todas las sedes
+        # ── Query 3: costo de mercancía vendida (COGS) por sede y periodo ──────────
+        # Ganancia = ingresos − costo. Solo admin (este endpoint es IsAdministrator).
+        cogs_expr = ExpressionWrapper(
+            F('quantity') * F('producto__cost'), output_field=DecimalField(max_digits=14, decimal_places=2)
+        )
+        costo_stats = (
+            VentaItem.objects
+            .filter(
+                venta__sede__in=sedes,
+                venta__status=Venta.Status.COMPLETADA,
+                producto__isnull=False,
+            )
+            .values('venta__sede_id')
+            .annotate(
+                costo_hoy=Coalesce(Sum(cogs_expr, filter=Q(venta__created_at__date=today)),
+                                   Decimal('0'), output_field=DecimalField()),
+                costo_semana=Coalesce(Sum(cogs_expr, filter=Q(venta__created_at__date__gte=week_start)),
+                                      Decimal('0'), output_field=DecimalField()),
+                costo_mes=Coalesce(Sum(cogs_expr, filter=Q(venta__created_at__date__gte=month_start)),
+                                   Decimal('0'), output_field=DecimalField()),
+                costo_anio=Coalesce(Sum(cogs_expr, filter=Q(venta__created_at__date__gte=year_start)),
+                                    Decimal('0'), output_field=DecimalField()),
+            )
+        )
+
+        # ── Query 4: cajas abiertas — una sola query para todas las sedes
         cajas_qs = (
             AperturaCaja.objects
             .filter(sede__in=sedes, status=AperturaCaja.Status.ABIERTA)
@@ -580,6 +605,7 @@ class AdminResumenView(APIView):
         # Convertir a dicts para lookup O(1) en el loop de construcción
         ventas_by_sede = {v['sede_id']: v for v in ventas_stats}
         cancel_by_sede = {c['sede_id']: c for c in cancelaciones_stats}
+        costo_by_sede  = {c['venta__sede_id']: c for c in costo_stats}
 
         # Agrupar cajas por sede_id en Python (sin queries adicionales)
         cajas_by_sede: dict = {}
@@ -594,14 +620,30 @@ class AdminResumenView(APIView):
         for sede in sedes:
             v = ventas_by_sede.get(sede.id, {})
             c = cancel_by_sede.get(sede.id, {})
+            k = costo_by_sede.get(sede.id, {})
+
+            ing_hoy    = v.get('ingresos_hoy',    Decimal('0'))
+            ing_semana = v.get('ingresos_semana', Decimal('0'))
+            ing_mes    = v.get('ingresos_mes',    Decimal('0'))
+            ing_anio   = v.get('ingresos_anio',   Decimal('0'))
+            cost_hoy    = k.get('costo_hoy',    Decimal('0'))
+            cost_semana = k.get('costo_semana', Decimal('0'))
+            cost_mes    = k.get('costo_mes',    Decimal('0'))
+            cost_anio   = k.get('costo_anio',   Decimal('0'))
 
             result.append({
                 'sede_id':                sede.id,
                 'sede_name':              sede.name,
-                'ingresos_hoy':           str(v.get('ingresos_hoy',    Decimal('0'))),
-                'ingresos_semana':        str(v.get('ingresos_semana', Decimal('0'))),
-                'ingresos_mes':           str(v.get('ingresos_mes',    Decimal('0'))),
-                'ingresos_anio':          str(v.get('ingresos_anio',   Decimal('0'))),
+                'ingresos_hoy':           str(ing_hoy),
+                'ingresos_semana':        str(ing_semana),
+                'ingresos_mes':           str(ing_mes),
+                'ingresos_anio':          str(ing_anio),
+                # ── Ganancia (ingresos − costo de mercancía vendida) ──
+                'costo_mes':              str(cost_mes),
+                'ganancia_hoy':           str(ing_hoy    - cost_hoy),
+                'ganancia_semana':        str(ing_semana - cost_semana),
+                'ganancia_mes':           str(ing_mes    - cost_mes),
+                'ganancia_anio':          str(ing_anio   - cost_anio),
                 'devoluciones_hoy':       c.get('dev_hoy',      0),
                 'devoluciones_mes':       c.get('dev_mes',      0),
                 'monto_devoluciones_mes': str(c.get('monto_dev_mes', Decimal('0'))),
@@ -677,7 +719,13 @@ class ReportesView(APIView):
         completadas = _apply_filters(Venta.objects.filter(status=Venta.Status.COMPLETADA))
         canceladas  = _apply_filters(Venta.objects.filter(status=Venta.Status.CANCELADA))
 
-        # Ventas por día
+        # Expresión de costo de mercancía vendida (COGS): cantidad × costo del producto.
+        # Los ítems de servicio (producto null) no tienen costo de producto → se excluyen.
+        cogs_expr = ExpressionWrapper(
+            F('quantity') * F('producto__cost'), output_field=DecimalField(max_digits=14, decimal_places=2)
+        )
+
+        # Ventas por día (monto)
         ventas_por_dia = (
             completadas
             .annotate(fecha=TruncDate('created_at'))
@@ -686,7 +734,7 @@ class ReportesView(APIView):
             .order_by('fecha')
         )
 
-        # Top 20 productos
+        # Top 20 productos + costo por ítem
         items_base = VentaItem.objects.filter(venta__status=Venta.Status.COMPLETADA)
         if sede_id:
             items_base = items_base.filter(venta__sede_id=sede_id)
@@ -695,15 +743,43 @@ class ReportesView(APIView):
         if fecha_hasta:
             items_base = items_base.filter(venta__created_at__date__lte=fecha_hasta)
 
+        items_producto = items_base.filter(producto__isnull=False)
+
         top_productos = (
-            items_base
+            items_producto
             .values('producto__name', 'producto__sku')
-            .annotate(total_vendidos=Sum('quantity'), monto_total=Sum('subtotal'))
+            .annotate(
+                total_vendidos=Sum('quantity'),
+                monto_total=Sum('subtotal'),
+                costo_total=Coalesce(Sum(cogs_expr), Decimal('0'), output_field=DecimalField()),
+            )
             .order_by('-total_vendidos')[:20]
         )
 
-        resumen_agg  = completadas.aggregate(total=Sum('total'))
-        dev_agg      = canceladas.aggregate(total=Sum('total'))
+        # Costo de mercancía vendida por día (para la gráfica de ganancia)
+        costo_por_dia = {
+            c['fecha']: c['costo']
+            for c in (
+                items_producto
+                .annotate(fecha=TruncDate('venta__created_at'))
+                .values('fecha')
+                .annotate(costo=Coalesce(Sum(cogs_expr), Decimal('0'), output_field=DecimalField()))
+            )
+        }
+
+        resumen_agg = completadas.aggregate(total=Sum('total'))
+        dev_agg     = canceladas.aggregate(total=Sum('total'))
+        costo_agg   = items_producto.aggregate(
+            total=Coalesce(Sum(cogs_expr), Decimal('0'), output_field=DecimalField())
+        )
+
+        ingresos_total = resumen_agg['total'] or Decimal('0')
+        costo_total    = costo_agg['total']   or Decimal('0')
+        ganancia_total = ingresos_total - costo_total
+        margen_pct = (
+            (ganancia_total / ingresos_total * 100).quantize(Decimal('0.1'))
+            if ingresos_total > 0 else Decimal('0')
+        )
 
         return Response({'success': True, 'data': {
             'ventas_por_dia': [
@@ -711,6 +787,8 @@ class ReportesView(APIView):
                     'fecha':    str(v['fecha']),
                     'cantidad': v['cantidad'],
                     'monto':    str(v['monto'] or 0),
+                    'costo':    str(costo_por_dia.get(v['fecha'], Decimal('0'))),
+                    'ganancia': str((v['monto'] or Decimal('0')) - costo_por_dia.get(v['fecha'], Decimal('0'))),
                 }
                 for v in ventas_por_dia
             ],
@@ -720,14 +798,20 @@ class ReportesView(APIView):
                     'sku':            v['producto__sku'],
                     'total_vendidos': v['total_vendidos'],
                     'monto_total':    str(v['monto_total'] or 0),
+                    'costo_total':    str(v['costo_total'] or 0),
+                    'ganancia':       str((v['monto_total'] or Decimal('0')) - (v['costo_total'] or Decimal('0'))),
                 }
                 for v in top_productos
             ],
             'resumen': {
                 'total_ventas':          completadas.count(),
-                'monto_total':           str(resumen_agg['total'] or 0),
+                'monto_total':           str(ingresos_total),
                 'total_cancelaciones':   canceladas.count(),
                 'monto_cancelaciones':   str(dev_agg['total'] or 0),
+                # ── Ganancia (solo admin: este endpoint ya es IsAdministrator) ──
+                'costo_total':           str(costo_total),
+                'ganancia_total':        str(ganancia_total),
+                'margen_pct':            str(margen_pct),
             },
         }})
 

@@ -35,6 +35,7 @@ const GananciasPanel: React.FC<Props> = ({ resumen, sedes }) => {
   const [customDesde, setDesde]   = useState('');
   const [customHasta, setHasta]   = useState('');
   const [totalCustom, setCustom]  = useState<number | null>(null);
+  const [gananciaCustom, setGanC] = useState<number | null>(null);
   const [loadingCustom, setLoadC] = useState(false);
   const [modal, setModal]         = useState<{ fechaDesde: string; fechaHasta: string; sedeId?: number; titulo: string } | null>(null);
 
@@ -50,9 +51,27 @@ const GananciasPanel: React.FC<Props> = ({ resumen, sedes }) => {
     return parseFloat(map[tab] || '0');
   };
 
+  // Ganancia (profit) por período
+  const getGanancia = (r: SedeResumenVentas): number => {
+    const map: Record<Tab, string | undefined> = {
+      hoy:    r.ganancia_hoy,
+      semana: r.ganancia_semana,
+      mes:    r.ganancia_mes,
+      anio:   r.ganancia_anio,
+      custom: '0',
+    };
+    return parseFloat(map[tab] || '0');
+  };
+
   const totalGeneral = tab === 'custom'
     ? (totalCustom ?? 0)
     : resumen.reduce((s, r) => s + getIngreso(r), 0);
+
+  const gananciaGeneral = tab === 'custom'
+    ? (gananciaCustom ?? 0)
+    : resumen.reduce((s, r) => s + getGanancia(r), 0);
+
+  const margenGeneral = totalGeneral > 0 ? (gananciaGeneral / totalGeneral) * 100 : 0;
 
   // Date ranges for modal
   const today = toLocalDate(new Date());
@@ -79,8 +98,11 @@ const GananciasPanel: React.FC<Props> = ({ resumen, sedes }) => {
     if (tab !== 'custom' || !customDesde || !customHasta) return;
     setLoadC(true);
     salesService.reportes({ fecha_desde: customDesde, fecha_hasta: customHasta })
-      .then(res => setCustom(parseFloat(res.data.resumen.monto_total)))
-      .catch(() => setCustom(null))
+      .then(res => {
+        setCustom(parseFloat(res.data.resumen.monto_total));
+        setGanC(parseFloat(res.data.resumen.ganancia_total ?? '0'));
+      })
+      .catch(() => { setCustom(null); setGanC(null); })
       .finally(() => setLoadC(false));
   }, [tab, customDesde, customHasta]);
 
@@ -160,16 +182,37 @@ const GananciasPanel: React.FC<Props> = ({ resumen, sedes }) => {
 
         {/* Total + Ver ventas */}
         <div style={{ padding: '20px 24px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0' }}>
-          <div>
-            <div style={{ fontSize: 11, color: '#718096', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <DollarSign size={12} />
-              Total {TAB_LABELS[tab]} — Todas las sedes
+          <div style={{ display: 'flex', gap: 40, flexWrap: 'wrap' }}>
+            {/* Ingresos (lo vendido) */}
+            <div>
+              <div style={{ fontSize: 11, color: '#718096', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <DollarSign size={12} />
+                Ingresos {TAB_LABELS[tab]} — Todas las sedes
+              </div>
+              <div style={{ fontSize: 30, fontWeight: 800, color: '#2d3748', lineHeight: 1.15, marginTop: 4 }}>
+                {loadingCustom
+                  ? <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
+                  : fmt(totalGeneral)
+                }
+              </div>
             </div>
-            <div style={{ fontSize: 34, fontWeight: 800, color: '#276749', lineHeight: 1.15, marginTop: 4 }}>
-              {loadingCustom
-                ? <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
-                : fmt(totalGeneral)
-              }
+            {/* Ganancia (lo que de verdad ganó) */}
+            <div>
+              <div style={{ fontSize: 11, color: '#276749', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <TrendingUp size={12} />
+                Ganancia {TAB_LABELS[tab]}
+              </div>
+              <div style={{ fontSize: 30, fontWeight: 800, color: '#276749', lineHeight: 1.15, marginTop: 4, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                {loadingCustom
+                  ? <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
+                  : <>
+                      {fmt(gananciaGeneral)}
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#38a169' }}>
+                        {margenGeneral.toFixed(1)}% margen
+                      </span>
+                    </>
+                }
+              </div>
             </div>
           </div>
           <button
@@ -192,6 +235,7 @@ const GananciasPanel: React.FC<Props> = ({ resumen, sedes }) => {
           <div style={{ display: 'flex', overflowX: 'auto', padding: '16px 24px', gap: 12 }}>
             {resumen.map(r => {
               const monto = getIngreso(r);
+              const gan   = getGanancia(r);
               const sede  = sedes.find(s => s.id === r.sede_id);
               return (
                 <div
@@ -211,7 +255,10 @@ const GananciasPanel: React.FC<Props> = ({ resumen, sedes }) => {
                     <span>{r.sede_name}</span>
                     <ChevronRight size={12} color="#a0aec0" />
                   </div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: '#276749' }}>{fmt(monto)}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#2d3748' }}>{fmt(monto)}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#276749', marginTop: 2 }}>
+                    Ganancia: {fmt(gan)}
+                  </div>
                   {sede && (
                     <div style={{ marginTop: 6, display: 'flex', gap: 8, fontSize: 10, color: '#718096' }}>
                       <span>{r.cajas_abiertas.length} caja{r.cajas_abiertas.length !== 1 ? 's' : ''}</span>

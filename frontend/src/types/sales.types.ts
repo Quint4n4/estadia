@@ -130,6 +130,8 @@ export interface VentaPorDia {
   fecha:    string;
   cantidad: number;
   monto:    string;
+  costo?:    string;
+  ganancia?: string;
 }
 
 export interface TopProducto {
@@ -137,6 +139,8 @@ export interface TopProducto {
   sku:            string;
   total_vendidos: number;
   monto_total:    string;
+  costo_total?:   string;
+  ganancia?:      string;
 }
 
 export interface ReportesData {
@@ -147,6 +151,10 @@ export interface ReportesData {
     monto_total:         string;
     total_cancelaciones: number;
     monto_cancelaciones: string;
+    // Ganancia (solo admin)
+    costo_total?:        string;
+    ganancia_total?:     string;
+    margen_pct?:         string;
   };
 }
 
@@ -164,6 +172,12 @@ export interface SedeResumenVentas {
   ingresos_semana:        string;
   ingresos_mes:           string;
   ingresos_anio:          string;
+  // Ganancia (ingresos − costo). Solo admin.
+  costo_mes?:             string;
+  ganancia_hoy?:          string;
+  ganancia_semana?:       string;
+  ganancia_mes?:          string;
+  ganancia_anio?:         string;
   devoluciones_hoy:       number;
   devoluciones_mes:       number;
   monto_devoluciones_mes: string;
