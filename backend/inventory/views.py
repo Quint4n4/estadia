@@ -678,12 +678,20 @@ class EntradaInventarioListCreateView(APIView):
 
     def get(self, request):
         qs = EntradaInventario.objects.select_related('producto', 'sede', 'created_by')
+        user        = request.user
         producto_id = request.query_params.get('producto_id', '').strip()
         sede_id     = request.query_params.get('sede_id', '').strip()
         if producto_id:
             qs = qs.filter(producto_id=producto_id)
-        if sede_id:
-            qs = qs.filter(sede_id=sede_id)
+
+        # Aislamiento por sede: quien NO es administrador solo ve las entradas
+        # de SU propia sede (no las de otras sedes).
+        if user.is_administrator:
+            if sede_id:
+                qs = qs.filter(sede_id=sede_id)
+        else:
+            qs = qs.filter(sede_id=user.sede_id) if user.sede_id else qs.none()
+
         result = _paginate(qs, request)
         return Response({'success': True, 'data': {
             'entries':    EntradaInventarioSerializer(result['queryset'], many=True).data,
@@ -710,11 +718,20 @@ class AuditoriaListCreateView(APIView):
 
     def get(self, request):
         qs = AuditoriaInventario.objects.select_related('sede', 'created_by')
+        user          = request.user
         sede_id       = request.query_params.get('sede_id', '').strip()
         status_filter = request.query_params.get('status', '').strip()
         fecha_filter  = request.query_params.get('fecha', '').strip()
-        if sede_id:
-            qs = qs.filter(sede_id=sede_id)
+
+        # Aislamiento por sede: quien NO es administrador solo ve SU propia sede
+        # (un encargado no debe ver auditorías de otras sedes). El admin sí puede
+        # ver todas o filtrar por sede_id.
+        if user.is_administrator:
+            if sede_id:
+                qs = qs.filter(sede_id=sede_id)
+        else:
+            qs = qs.filter(sede_id=user.sede_id) if user.sede_id else qs.none()
+
         if status_filter:
             qs = qs.filter(status=status_filter)
         if fecha_filter:

@@ -2,11 +2,16 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { inventoryService } from '../../../api/inventory.service';
 import { branchesService } from '../../../api/branches.service';
 import apiClient from '../../../api/axios.config';
+import { useAuth } from '../../../contexts/AuthContext';
 import type { AuditoriaInventario, AuditoriaItem } from '../../../types/inventory.types';
 import type { SedeDetail, Pagination } from '../../../types/auth.types';
 import { Eye, X, FileDown } from 'lucide-react';
 
 const AuditView: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin    = user?.role === 'ADMINISTRATOR';
+  const userSedeId = user?.sede?.id;
+
   const [audits, setAudits] = useState<AuditoriaInventario[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ total: 0, page: 1, page_size: 10, total_pages: 1 });
   const [sedes, setSedes] = useState<SedeDetail[]>([]);
@@ -207,14 +212,20 @@ const AuditView: React.FC = () => {
           <h2>Supervisión de Inventario</h2>
           <p>{pagination.total} supervisiones</p>
         </div>
-        <button className="btn-primary" onClick={() => setShowNewForm(true)}>+ Nueva Supervisión</button>
+        <button className="btn-primary" onClick={() => {
+          if (!isAdmin && userSedeId) setNewSede(String(userSedeId)); // encargado: solo su sede
+          setShowNewForm(true);
+        }}>+ Nueva Supervisión</button>
       </div>
 
       <div className="filters-bar">
-        <select className="filter-select" value={sedeFilter} onChange={e => setSedeFilter(e.target.value)}>
-          <option value="">Todas las sedes</option>
-          {sedes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+        {/* El filtro de sede solo lo ve el administrador; el encargado siempre ve su sede */}
+        {isAdmin && (
+          <select className="filter-select" value={sedeFilter} onChange={e => setSedeFilter(e.target.value)}>
+            <option value="">Todas las sedes</option>
+            {sedes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
         <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
           <option value="">Todos los estados</option>
           <option value="DRAFT">Programada</option>
@@ -292,9 +303,10 @@ const AuditView: React.FC = () => {
             <form onSubmit={handleCreate} className="modal-form">
               <div className="form-group">
                 <label>Sede *</label>
-                <select value={newSede} onChange={e => setNewSede(e.target.value)} required>
+                <select value={newSede} onChange={e => setNewSede(e.target.value)} required disabled={!isAdmin}>
                   <option value="">— Selecciona una sede —</option>
-                  {sedes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {(isAdmin ? sedes : sedes.filter(s => s.id === userSedeId))
+                    .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
               <div className="form-group">
