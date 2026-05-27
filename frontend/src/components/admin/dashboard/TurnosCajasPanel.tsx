@@ -37,11 +37,20 @@ const ROLE_BG: Record<string, string> = {
 
 /** Returns "Xh Ym" from an ISO date string */
 function elapsed(isoStr: string): string {
-  const ms = Date.now() - new Date(isoStr).getTime();
+  const t = new Date(isoStr).getTime();
+  if (isNaN(t)) return '';
+  const ms = Date.now() - t;
   const totalMin = Math.floor(ms / 60000);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/** Returns the opening clock time "HH:MM" from an ISO date string */
+function clockTime(isoStr: string): string {
+  const t = new Date(isoStr);
+  if (isNaN(t.getTime())) return '';
+  return t.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 }
 
 /** Auto-refresh every minute to keep elapsed times current */
@@ -118,7 +127,9 @@ const TurnosCajasPanel: React.FC<Props> = ({ sedes, resumen }) => {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#718096' }}>
                   <Clock size={11} />
-                  <span style={{ fontWeight: 600, color: '#2b6cb0' }}>{elapsed(c.desde)}</span>
+                  <span style={{ fontWeight: 600, color: '#2b6cb0' }}>
+                    {clockTime(c.desde)}{elapsed(c.desde) ? ` · ${elapsed(c.desde)}` : ''}
+                  </span>
                 </div>
               </div>
             ))

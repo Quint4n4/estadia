@@ -20,6 +20,7 @@ from .serializers import (
 )
 from .models import CustomUser, Turno, PasswordResetToken, LoginAuditLog
 
+# BUSCAR>> BLOQUEO-CUENTA :: Bloqueo de cuenta: tras 5 intentos fallidos se bloquea 30 minutos (respuesta HTTP 423).
 MAX_LOGIN_ATTEMPTS = 5
 LOCKOUT_MINUTES    = 30
 
@@ -257,6 +258,46 @@ def _sede_snapshot(sede):
     except Exception:
         low_stock_count = out_of_stock_count = total_stock_quantity = 0
 
+    # ── Personal ACTIVO ──────────────────────────────────────────────────────
+    # No solo por horario: cuenta a quien tiene caja abierta o actividad reciente
+    # (ventas/pedidos) en las últimas horas, además de los turnos programados.
+    activos: dict = {}
+
+    def _agregar(uid, nombre, rol):
+        if uid and uid not in activos:
+            activos[uid] = {'id': uid, 'name': (nombre or '').strip() or 'Empleado', 'role': rol}
+
+    # 1) Turnos programados (si existen)
+    for t in on_shift_qs:
+        _agregar(t.user_id, t.user.get_full_name(), t.user.role)
+
+    try:
+        from sales.models import AperturaCaja, Venta
+        from pedidos.models import PedidoBodega
+        reciente = now - timedelta(hours=8)
+
+        # 2) Cajeros con caja abierta (activos ahora mismo)
+        for r in (AperturaCaja.objects
+                  .filter(sede=sede, status=AperturaCaja.Status.ABIERTA)
+                  .values('cajero_id', 'cajero__first_name', 'cajero__last_name', 'cajero__role')):
+            _agregar(r['cajero_id'], f"{r['cajero__first_name']} {r['cajero__last_name']}", r['cajero__role'])
+
+        # 3) Quien hizo ventas recientes
+        for r in (Venta.objects
+                  .filter(sede=sede, created_at__gte=reciente)
+                  .values('cajero_id', 'cajero__first_name', 'cajero__last_name', 'cajero__role').distinct()):
+            _agregar(r['cajero_id'], f"{r['cajero__first_name']} {r['cajero__last_name']}", r['cajero__role'])
+
+        # 4) Quien hizo pedidos a bodega recientes
+        for r in (PedidoBodega.objects
+                  .filter(sede=sede, created_at__gte=reciente)
+                  .values('cajero_id', 'cajero__first_name', 'cajero__last_name', 'cajero__role').distinct()):
+            _agregar(r['cajero_id'], f"{r['cajero__first_name']} {r['cajero__last_name']}", r['cajero__role'])
+    except Exception:
+        pass  # si algo falla, al menos quedan los turnos programados
+
+    on_shift_users = list(activos.values())
+
     return {
         'id':    sede.id,
         'name':  sede.name,
@@ -267,11 +308,8 @@ def _sede_snapshot(sede):
         'total_encargados': emp_qs.filter(role=CustomUser.Role.ENCARGADO).count(),
         'total_workers':    emp_qs.filter(role=CustomUser.Role.WORKER).count(),
         'total_cashiers':   emp_qs.filter(role=CustomUser.Role.CASHIER).count(),
-        'on_shift_now': on_shift_qs.count(),
-        'on_shift_users': [
-            {'id': t.user.id, 'name': t.user.get_full_name(), 'role': t.user.role}
-            for t in on_shift_qs
-        ],
+        'on_shift_now': len(on_shift_users),
+        'on_shift_users': on_shift_users,
         'low_stock_count':    low_stock_count,
         'out_of_stock_count': out_of_stock_count,
         'total_stock_quantity': total_stock_quantity,

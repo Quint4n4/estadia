@@ -70,6 +70,7 @@ def _paginate(qs, request, default_size=20):
     }
 
 
+# BUSCAR>> CORREO-TICKET :: Envía el ticket de venta en PDF por correo (Resend), en un hilo en segundo plano.
 def _send_ticket_background(venta_id: int, email: str) -> None:
     """Genera el PDF del ticket de una venta y lo envía por Resend.
 
@@ -332,6 +333,7 @@ class GenerarCodigoView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
+# BUSCAR>> ABRIR-CAJA :: Apertura de caja con código temporal de 6 dígitos.
 class AbrirCajaView(APIView):
     """
     POST /api/sales/cajas/abrir/
@@ -413,6 +415,7 @@ class MiEstadoCajaView(APIView):
         })
 
 
+# BUSCAR>> CERRAR-CAJA :: Cierre de caja y corte de efectivo (esperado vs contado físicamente).
 class CerrarCajaView(APIView):
     """
     POST /api/sales/cajas/<id>/cerrar/
@@ -612,7 +615,8 @@ class AdminResumenView(APIView):
         for caja in cajas_qs:
             cajas_by_sede.setdefault(caja.sede_id, []).append({
                 'cajero_name': caja.cajero.get_full_name(),
-                'desde':       caja.fecha_apertura.strftime('%H:%M'),
+                # ISO completo: el frontend calcula el tiempo transcurrido y la hora.
+                'desde':       caja.fecha_apertura.isoformat(),
             })
 
         # ── Construir la respuesta con lookups O(1) — sin queries adicionales
@@ -655,6 +659,7 @@ class AdminResumenView(APIView):
 
 # ─── Reportes ─────────────────────────────────────────────────────────────────
 
+# BUSCAR>> GRAFICA-TENDENCIA :: Datos para la gráfica de tendencia de ventas por día.
 class VentasTendenciaView(APIView):
     """
     GET /api/sales/tendencia/?dias=7
@@ -776,6 +781,7 @@ class ReportesView(APIView):
         ingresos_total = resumen_agg['total'] or Decimal('0')
         costo_total    = costo_agg['total']   or Decimal('0')
         ganancia_total = ingresos_total - costo_total
+        # BUSCAR>> GANANCIA-MARGEN :: Ganancia = ingresos - costo de lo vendido (COGS); margen % = ganancia / ingresos * 100.
         margen_pct = (
             (ganancia_total / ingresos_total * 100).quantize(Decimal('0.1'))
             if ingresos_total > 0 else Decimal('0')
@@ -818,6 +824,7 @@ class ReportesView(APIView):
 
 # ─── Top Items (pie chart data) ───────────────────────────────────────────────
 
+# BUSCAR>> GRAFICA-TOP :: Datos para la gráfica de productos/servicios más vendidos.
 class TopItemsView(APIView):
     """
     GET /api/sales/top-items/
