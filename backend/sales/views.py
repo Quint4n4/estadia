@@ -979,13 +979,35 @@ class ReporteCajaDownloadView(APIView):
             return Response({'success': False, 'message': 'Sin permisos.'},
                             status=status.HTTP_403_FORBIDDEN)
 
-        if not reporte.archivo:
-            return Response({'success': False, 'message': 'El archivo PDF no está disponible.'},
-                            status=status.HTTP_404_NOT_FOUND)
+        # Estrategia robusta: si el archivo guardado existe y se puede abrir, lo
+        # servimos tal cual; si no (storage roto, archivo perdido, etc.) lo
+        # regeneramos al vuelo desde la apertura. Así nunca quedamos sin reporte.
+        from django.http import HttpResponse
+        archivo_ok = False
+        if reporte.archivo:
+            try:
+                response = FileResponse(reporte.archivo.open('rb'), content_type='application/pdf')
+                response['Content-Disposition'] = f'attachment; filename="{reporte.archivo.name.split("/")[-1]}"'
+                archivo_ok = True
+                return response
+            except Exception as e:
+                print(f'[REPORTE-CAJA] archivo guardado no disponible (regenerando al vuelo): {e}',
+                      flush=True)
 
-        response = FileResponse(
-            reporte.archivo.open('rb'),
-            content_type='application/pdf',
-        )
-        response['Content-Disposition'] = f'attachment; filename="{reporte.archivo.name.split("/")[-1]}"'
-        return response
+        if not archivo_ok:
+            try:
+                from .pdf_service import generate_reporte_caja_pdf
+                contado = reporte.efectivo_contado  # puede ser None
+                pdf_buffer = generate_reporte_caja_pdf(reporte.apertura, efectivo_contado=contado)
+                pdf_bytes = pdf_buffer.read()
+                cajero = reporte.apertura.cajero.get_full_name().replace(' ', '_') or 'cajero'
+                fecha  = (reporte.apertura.fecha_cierre or reporte.created_at).strftime('%Y%m%d_%H%M')
+                response = HttpResponse(pdf_bytes, content_type='application/pdf')
+                response['Content-Disposition'] = f'attachment; filename="reporte_{cajero}_{fecha}.pdf"'
+                return response
+            except Exception as e:
+                import traceback
+                print(f'[REPORTE-CAJA] Error regenerando reporte_id={reporte.pk}: {e}', flush=True)
+                traceback.print_exc()
+                return Response({'success': False, 'message': 'No se pudo generar el reporte.'},
+                                status=status.HTTP_500_INTERNAL_SERVER_ERROR)
