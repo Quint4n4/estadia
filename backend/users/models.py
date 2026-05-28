@@ -31,6 +31,7 @@ class CustomUserManager(BaseUserManager):
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
+    # BUSCAR>> PERMISOS-ROLES :: Definición de los roles del sistema (control de acceso por rol).
     class Role(models.TextChoices):
         ADMINISTRATOR  = 'ADMINISTRATOR',  'Administrador'
         ENCARGADO      = 'ENCARGADO',      'Encargado de Sede'
@@ -215,10 +216,12 @@ class PasswordResetToken(models.Model):
 #  LOGIN AUDIT LOG — Security event log
 # ─────────────────────────────────────────────────────────────────────────────
 
+# BUSCAR>> BITACORA-AUDITORIA :: Bitácora de seguridad: registra logins, fallos, bloqueos y reset con IP y fecha.
 class LoginAuditLog(models.Model):
     class EventType(models.TextChoices):
         LOGIN_SUCCESS       = 'LOGIN_SUCCESS',       'Inicio de sesión exitoso'
         LOGIN_FAILED        = 'LOGIN_FAILED',        'Intento fallido'
+        LOGOUT              = 'LOGOUT',              'Cierre de sesión'
         ACCOUNT_LOCKED      = 'ACCOUNT_LOCKED',      'Cuenta bloqueada'
         ACCOUNT_UNLOCKED    = 'ACCOUNT_UNLOCKED',    'Cuenta desbloqueada'
         UNLOCK_REQUESTED    = 'UNLOCK_REQUESTED',    'Solicitud de desbloqueo'
@@ -245,6 +248,7 @@ class LoginAuditLog(models.Model):
         verbose_name = 'Registro de acceso'
         verbose_name_plural = 'Registros de acceso'
         indexes = [
+            # BUSCAR>> INDICES-AUDITORIA :: Índices de la bitácora de auditoría (búsqueda por correo/evento y fecha).
             models.Index(fields=['email', 'timestamp'],      name='audit_email_ts_idx'),
             models.Index(fields=['event_type', 'timestamp'], name='audit_event_ts_idx'),
         ]

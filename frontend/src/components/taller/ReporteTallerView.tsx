@@ -25,8 +25,17 @@ function fmtHoras(h: number): string {
   return `${dias}d ${hrs}h`;
 }
 
+// Fecha LOCAL del navegador (NO UTC). Antes usaba toISOString() que daba la fecha
+// UTC y, de noche en México, "Hoy" caía al día siguiente y no traía los servicios reales.
+function ymdLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function getToday(): string {
-  return new Date().toISOString().slice(0, 10);
+  return ymdLocal(new Date());
 }
 
 function getFirstDayOfMonth(): string {
@@ -53,7 +62,7 @@ function getMonday(): string {
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
   d.setDate(diff);
-  return d.toISOString().slice(0, 10);
+  return ymdLocal(d);
 }
 
 // ─── Estilos compartidos ──────────────────────────────────────────────────────

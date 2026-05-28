@@ -302,16 +302,28 @@ def _sede_snapshot(sede):
                   .values('mecanico_id', 'mecanico__first_name', 'mecanico__last_name', 'mecanico__role').distinct()):
             _agregar(r['mecanico_id'], f"{r['mecanico__first_name']} {r['mecanico__last_name']}", r['mecanico__role'])
 
-        # 6) Cualquier rol del staff con login exitoso reciente (encargado, trabajador,
-        #    jefe mecánico, etc.) — así aparecen también los que solo entraron a su panel.
-        for r in (LoginAuditLog.objects
-                  .filter(event_type=LoginAuditLog.EventType.LOGIN_SUCCESS,
-                          timestamp__gte=reciente,
-                          user__isnull=False,
-                          user__sede=sede)
-                  .exclude(user__role=CustomUser.Role.CUSTOMER)
-                  .values('user_id', 'user__first_name', 'user__last_name', 'user__role').distinct()):
-            _agregar(r['user_id'], f"{r['user__first_name']} {r['user__last_name']}", r['user__role'])
+        # 6) Cualquier rol del staff con sesión activa (login más reciente que su
+        #    último logout). Si el usuario cerró sesión (LogoutView registró el
+        #    evento LOGOUT), su último evento ya no es LOGIN_SUCCESS y se quita.
+        eventos = (LoginAuditLog.objects
+                   .filter(user__sede=sede, timestamp__gte=reciente,
+                           event_type__in=[LoginAuditLog.EventType.LOGIN_SUCCESS,
+                                           LoginAuditLog.EventType.LOGOUT])
+                   .exclude(user__role=CustomUser.Role.CUSTOMER)
+                   .order_by('-timestamp')
+                   .values('user_id', 'event_type',
+                           'user__first_name', 'user__last_name', 'user__role'))
+        vistos_auth: set = set()
+        for ev in eventos:
+            uid = ev['user_id']
+            if uid in vistos_auth:
+                continue
+            vistos_auth.add(uid)
+            # El evento más reciente del usuario dentro de la ventana:
+            # - LOGIN_SUCCESS → sigue activo
+            # - LOGOUT        → ya cerró sesión, no aparece
+            if ev['event_type'] == LoginAuditLog.EventType.LOGIN_SUCCESS:
+                _agregar(uid, f"{ev['user__first_name']} {ev['user__last_name']}", ev['user__role'])
     except Exception:
         pass  # si algo falla, al menos quedan los turnos programados
 
@@ -493,6 +505,34 @@ class LoginView(APIView):
 class CustomTokenRefreshView(TokenRefreshView):
     """POST /api/auth/refresh/ — Refresh access token."""
     pass
+
+
+class LogoutView(APIView):
+    """
+    POST /api/auth/logout/ — Cierra la sesión del usuario.
+    Registra el evento LOGOUT en LoginAuditLog para que el dashboard de
+    "Personal en turno" deje de mostrar al empleado de inmediato.
+    """
+    permission_classes = [AllowAny]  # idempotente; aún si el token expiró
+
+    def post(self, request):
+        user = request.user if request.user.is_authenticated else None
+        # Fallback: si el access token expiró, intentamos identificarlo por el refresh.
+        if user is None:
+            refresh_str = request.data.get('refresh', '')
+            if refresh_str:
+                try:
+                    rt = RefreshToken(refresh_str)
+                    uid = rt.payload.get('user_id') if hasattr(rt, 'payload') else None
+                    if uid:
+                        user = CustomUser.objects.filter(pk=uid).first()
+                except Exception:
+                    user = None
+
+        _log_event(LoginAuditLog.EventType.LOGOUT,
+                   email=(user.email if user else ''),
+                   user=user, request=request)
+        return Response({'success': True, 'message': 'Sesión cerrada'})
 
 
 class UserProfileView(APIView):

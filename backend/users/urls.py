@@ -4,6 +4,7 @@ URL Configuration for Users and Authentication
 from django.urls import path
 from .views import (
     LoginView,
+    LogoutView,
     CustomTokenRefreshView,
     UserProfileView,
     RequestUnlockView,
@@ -24,6 +25,7 @@ app_name = 'users'
 urlpatterns = [
     # Auth
     path('login/',   LoginView.as_view(),              name='login'),
+    path('logout/',  LogoutView.as_view(),              name='logout'),
     path('refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
     path('profile/', UserProfileView.as_view(),        name='profile'),
 

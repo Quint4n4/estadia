@@ -84,10 +84,17 @@ export const authService = {
   },
 
   /**
-   * Logout user — clears this tab's session only (sessionStorage + memory).
-   * Other tabs keep their own independent sessions.
+   * Logout user — notifica al backend (registra LOGOUT en LoginAuditLog para
+   * que el dashboard saque al empleado de "Personal en turno" de inmediato)
+   * y limpia esta pestaña (sessionStorage + memoria). El POST es fire-and-forget:
+   * si la red falla, igual se limpia local.
    */
   logout: () => {
+    const refresh = tokenStore.getRefresh();
+    if (refresh) {
+      // Disparado antes del clear() para que vaya con el access token aún válido en memoria.
+      apiClient.post('/auth/logout/', { refresh }).catch(() => { /* sin red: ignorar */ });
+    }
     tokenStore.clear();
   },
 };
