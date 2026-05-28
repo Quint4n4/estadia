@@ -34,8 +34,13 @@ def _generate_pdf_background(apertura_id: int, efectivo_contado=None) -> None:
         from .pdf_service import build_reporte_from_apertura
         apertura = AperturaCaja.objects.select_related('sede', 'cajero').get(pk=apertura_id)
         build_reporte_from_apertura(apertura, efectivo_contado=efectivo_contado)
-    except Exception:
-        pass  # PDF es best-effort; un fallo aquí nunca debe afectar al cierre
+    except Exception as e:
+        # PDF es best-effort: no afecta al cierre, pero SÍ logueamos para diagnosticar
+        # (antes este except tragaba silenciosamente y por eso sedes con items de
+        # SERVICIO no generaban reporte sin dejar rastro).
+        import traceback
+        print(f'[REPORTE-CAJA] Error generando reporte de apertura={apertura_id}: {e}', flush=True)
+        traceback.print_exc()
 
 
 def _parse_monto(valor, default=None):

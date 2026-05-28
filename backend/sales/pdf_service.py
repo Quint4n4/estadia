@@ -279,9 +279,20 @@ def generate_reporte_caja_pdf(apertura, efectivo_contado=None) -> io.BytesIO:
     if completadas.exists():
         story.append(Paragraph(f'Detalle de ventas completadas ({n_completadas})', section_style))
         rows = [['#Folio', 'Hora', 'Productos', 'Método', 'Descuento', 'Total']]
+
+        def _item_name(it):
+            # Maneja items de PRODUCTO (it.producto), de catálogo de servicios
+            # y servicios del taller (sin catálogo). Antes hacía it.producto.name
+            # directo y tronaba con servicios (producto=None) → no generaba reporte.
+            if it.producto_id:
+                return it.producto.name
+            if getattr(it, 'catalogo_servicio_id', None):
+                return getattr(it.catalogo_servicio, 'nombre', None) or 'Servicio'
+            return 'Servicio de taller'
+
         for v in completadas:
             productos_str = ', '.join(
-                f"{it.producto.name} ×{it.quantity}" for it in v.items.all()
+                f"{_item_name(it)} ×{it.quantity}" for it in v.items.all()
             )
             if len(productos_str) > 60:
                 productos_str = productos_str[:57] + '…'
@@ -318,7 +329,7 @@ def generate_reporte_caja_pdf(apertura, efectivo_contado=None) -> io.BytesIO:
         cancel_rows = [['#Folio', 'Hora', 'Productos', 'Total cancelado']]
         for v in canceladas:
             productos_str = ', '.join(
-                f"{it.producto.name} ×{it.quantity}" for it in v.items.all()
+                f"{_item_name(it)} ×{it.quantity}" for it in v.items.all()
             )
             if len(productos_str) > 70:
                 productos_str = productos_str[:67] + '…'
@@ -462,6 +473,7 @@ def generate_ticket_venta_pdf(venta) -> io.BytesIO:
     tasa    = iva_pct / Decimal('100')
     total   = venta.total or Decimal('0')
     sin_iva = (total / (Decimal('1') + tasa)).quantize(Decimal('0.01'))
+    # BUSCAR>> FORMULA-IVA-TICKET :: Mismo cálculo del IVA, pero para imprimirlo desglosado en el ticket PDF.
     iva_monto = (total - sin_iva).quantize(Decimal('0.01'))
     folio   = f"{venta.id:06d}"
 
