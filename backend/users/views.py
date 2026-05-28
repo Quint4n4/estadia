@@ -274,6 +274,7 @@ def _sede_snapshot(sede):
     try:
         from sales.models import AperturaCaja, Venta
         from pedidos.models import PedidoBodega
+        from taller.models import ServicioMoto
         reciente = now - timedelta(hours=8)
 
         # 2) Cajeros con caja abierta (activos ahora mismo)
@@ -293,6 +294,24 @@ def _sede_snapshot(sede):
                   .filter(sede=sede, created_at__gte=reciente)
                   .values('cajero_id', 'cajero__first_name', 'cajero__last_name', 'cajero__role').distinct()):
             _agregar(r['cajero_id'], f"{r['cajero__first_name']} {r['cajero__last_name']}", r['cajero__role'])
+
+        # 5) Mecánicos asignados a servicios en proceso (activos en taller)
+        servicios_activos = ['EN_DIAGNOSTICO', 'EN_PROCESO', 'LISTO']
+        for r in (ServicioMoto.objects
+                  .filter(sede=sede, status__in=servicios_activos, mecanico__isnull=False)
+                  .values('mecanico_id', 'mecanico__first_name', 'mecanico__last_name', 'mecanico__role').distinct()):
+            _agregar(r['mecanico_id'], f"{r['mecanico__first_name']} {r['mecanico__last_name']}", r['mecanico__role'])
+
+        # 6) Cualquier rol del staff con login exitoso reciente (encargado, trabajador,
+        #    jefe mecánico, etc.) — así aparecen también los que solo entraron a su panel.
+        for r in (LoginAuditLog.objects
+                  .filter(event_type=LoginAuditLog.EventType.LOGIN_SUCCESS,
+                          timestamp__gte=reciente,
+                          user__isnull=False,
+                          user__sede=sede)
+                  .exclude(user__role=CustomUser.Role.CUSTOMER)
+                  .values('user_id', 'user__first_name', 'user__last_name', 'user__role').distinct()):
+            _agregar(r['user_id'], f"{r['user__first_name']} {r['user__last_name']}", r['user__role'])
     except Exception:
         pass  # si algo falla, al menos quedan los turnos programados
 

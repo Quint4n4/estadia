@@ -523,7 +523,10 @@ class AdminResumenView(APIView):
     def get(self, request):
         from branches.models import Sede
 
-        today       = timezone.now().date()
+        # localdate respeta TIME_ZONE='America/Mexico_City'.
+        # Antes usaba timezone.now().date() (UTC), que de noche caía al día siguiente
+        # y por eso "Hoy" salía en $0 aunque hubiera ventas del día.
+        today       = timezone.localdate()
         week_start  = today - timedelta(days=today.weekday())
         month_start = today.replace(day=1)
         year_start  = today.replace(month=1, day=1)
@@ -670,7 +673,7 @@ class VentasTendenciaView(APIView):
 
     def get(self, request):
         dias = int(request.query_params.get('dias', 7))
-        fecha_inicio = timezone.now().date() - timedelta(days=dias - 1)
+        fecha_inicio = timezone.localdate() - timedelta(days=dias - 1)
 
         datos = (
             Venta.objects
@@ -866,13 +869,31 @@ class TopItemsView(APIView):
             .order_by('-cantidad')[:8]
         )
 
-        # Top 8 servicios (tipo='SERVICIO')
-        top_servicios = (
+        # Top 8 servicios — fallback al nombre del ServicioMoto del taller cuando
+        # el ítem no está vinculado al catálogo (caso típico: cobro de servicio
+        # desde taller, donde el item es tipo SERVICIO pero catalogo_servicio es null).
+        from collections import defaultdict
+        servicio_items = (
             VentaItem.objects.filter(venta__in=qs_ventas, tipo='SERVICIO')
-            .values('catalogo_servicio__nombre')
-            .annotate(cantidad=Sum('quantity'), monto=Sum('subtotal'))
-            .order_by('-cantidad')[:8]
+            .select_related('catalogo_servicio', 'venta')
+            .prefetch_related('venta__servicios_taller')
         )
+        acum: dict = defaultdict(lambda: {'cantidad': 0, 'monto': Decimal('0')})
+        for it in servicio_items:
+            if it.catalogo_servicio and (it.catalogo_servicio.nombre or '').strip():
+                nombre = it.catalogo_servicio.nombre.strip()
+            else:
+                svm = it.venta.servicios_taller.first() if it.venta_id else None
+                desc = (getattr(svm, 'descripcion', '') or '').strip()
+                nombre = desc[:50] if desc else 'Servicio de taller'
+            acum[nombre]['cantidad'] += it.quantity or 0
+            acum[nombre]['monto']    += (it.subtotal or Decimal('0'))
+
+        top_servicios = sorted(
+            [{'nombre': n, 'cantidad': v['cantidad'], 'monto': str(v['monto'])}
+             for n, v in acum.items()],
+            key=lambda x: x['cantidad'], reverse=True
+        )[:8]
 
         return Response({
             'success': True,
@@ -886,14 +907,7 @@ class TopItemsView(APIView):
                     }
                     for r in top_productos
                 ],
-                'servicios': [
-                    {
-                        'nombre':   r['catalogo_servicio__nombre'] or '(sin nombre)',
-                        'cantidad': r['cantidad'] or 0,
-                        'monto':    str(r['monto'] or 0),
-                    }
-                    for r in top_servicios
-                ],
+                'servicios': top_servicios,
             }
         })
 
